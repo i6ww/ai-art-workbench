@@ -11,9 +11,9 @@ app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'), static_url
 
 BASE_URL = "https://www.371181668.xyz"
 
-# 模型列表 - 从服务器动态获取
+# 模型列表
 MODELS = {
-    "图片-1K": [
+    "1K": [
         "firefly-nano-banana-1k-16x9",
         "firefly-nano-banana-1k-1x1",
         "firefly-nano-banana-1k-21x9",
@@ -44,7 +44,7 @@ MODELS = {
         "firefly-nano-banana2-1k-8x1",
         "firefly-nano-banana2-1k-9x16",
     ],
-    "图片-2K": [
+    "2K": [
         "firefly-nano-banana-2k-16x9",
         "firefly-nano-banana-2k-1x1",
         "firefly-nano-banana-2k-21x9",
@@ -75,7 +75,7 @@ MODELS = {
         "firefly-nano-banana2-2k-8x1",
         "firefly-nano-banana2-2k-9x16",
     ],
-    "图片-4K": [
+    "4K": [
         "firefly-nano-banana-4k-16x9",
         "firefly-nano-banana-4k-1x1",
         "firefly-nano-banana-4k-21x9",
@@ -105,65 +105,6 @@ MODELS = {
         "firefly-nano-banana2-4k-5x4",
         "firefly-nano-banana2-4k-8x1",
         "firefly-nano-banana2-4k-9x16",
-    ],
-    "视频-Sora2": [
-        "firefly-sora2-4s-16x9",
-        "firefly-sora2-4s-9x16",
-        "firefly-sora2-8s-16x9",
-        "firefly-sora2-8s-9x16",
-        "firefly-sora2-12s-16x9",
-        "firefly-sora2-12s-9x16",
-        "firefly-sora2-pro-4s-16x9",
-        "firefly-sora2-pro-4s-9x16",
-        "firefly-sora2-pro-8s-16x9",
-        "firefly-sora2-pro-8s-9x16",
-        "firefly-sora2-pro-12s-16x9",
-        "firefly-sora2-pro-12s-9x16",
-    ],
-    "视频-Veo31": [
-        "firefly-veo31-4s-16x9-720p",
-        "firefly-veo31-4s-16x9-1080p",
-        "firefly-veo31-4s-9x16-720p",
-        "firefly-veo31-4s-9x16-1080p",
-        "firefly-veo31-6s-16x9-720p",
-        "firefly-veo31-6s-16x9-1080p",
-        "firefly-veo31-6s-9x16-720p",
-        "firefly-veo31-6s-9x16-1080p",
-        "firefly-veo31-8s-16x9-720p",
-        "firefly-veo31-8s-16x9-1080p",
-        "firefly-veo31-8s-9x16-720p",
-        "firefly-veo31-8s-9x16-1080p",
-        "firefly-veo31-fast-4s-16x9-720p",
-        "firefly-veo31-fast-4s-16x9-1080p",
-        "firefly-veo31-fast-4s-9x16-720p",
-        "firefly-veo31-fast-4s-9x16-1080p",
-        "firefly-veo31-fast-6s-16x9-720p",
-        "firefly-veo31-fast-6s-16x9-1080p",
-        "firefly-veo31-fast-6s-9x16-720p",
-        "firefly-veo31-fast-6s-9x16-1080p",
-        "firefly-veo31-fast-8s-16x9-720p",
-        "firefly-veo31-fast-8s-16x9-1080p",
-        "firefly-veo31-fast-8s-9x16-720p",
-        "firefly-veo31-fast-8s-9x16-1080p",
-        "firefly-veo31-ref-4s-16x9-720p",
-        "firefly-veo31-ref-4s-16x9-1080p",
-        "firefly-veo31-ref-4s-9x16-720p",
-        "firefly-veo31-ref-4s-9x16-1080p",
-        "firefly-veo31-ref-6s-16x9-720p",
-        "firefly-veo31-ref-6s-16x9-1080p",
-        "firefly-veo31-ref-6s-9x16-720p",
-        "firefly-veo31-ref-6s-9x16-1080p",
-        "firefly-veo31-ref-8s-16x9-720p",
-        "firefly-veo31-ref-8s-16x9-1080p",
-        "firefly-veo31-ref-8s-9x16-720p",
-        "firefly-veo31-ref-8s-9x16-1080p",
-    ],
-    "Gemini图片": [
-        "gemini-3.0-pro-image",
-        "gemini-3.1-flash-image",
-    ],
-    "Veo视频": [
-        "veo-3.1-generate-preview",
     ],
 }
 
