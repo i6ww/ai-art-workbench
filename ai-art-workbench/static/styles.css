@@ -240,13 +240,52 @@ body::before {
 /* 上传区域 */
 .upload-area {
     width: 100%;
-    max-width: 400px;
+    max-width: 600px;
     min-height: 200px;
     border: 2px dashed var(--border-color);
     border-radius: 12px;
     margin-bottom: 24px;
     position: relative;
     overflow: hidden;
+    padding: 12px;
+}
+
+.upload-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.upload-item {
+    position: relative;
+    aspect-ratio: 1;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.upload-item:hover {
+    border-color: var(--accent-primary);
+}
+
+.upload-item .upload-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: var(--text-muted);
+    font-size: 12px;
+    margin: 0;
+}
+
+.upload-item .preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
 }
 
 .upload-placeholder {

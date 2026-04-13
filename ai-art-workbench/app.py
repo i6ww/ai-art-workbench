@@ -125,27 +125,36 @@ def generate():
     api_key = data.get('apiKey')
     model = data.get('model')
     prompt = data.get('prompt')
-    image_data = data.get('image')  # 图生图时使用
+    image_data = data.get('image')  # 单张图片
+    images_data = data.get('images')  # 多张图片
 
     if not api_key or not model or not prompt:
         return jsonify({'error': '缺少必要参数'}), 400
 
     try:
         # 构建消息内容
-        if image_data:
+        if image_data or images_data:
             # 图生图模式
-            if ',' in image_data:
-                image_b64 = image_data.split(',')[1]
-            else:
-                image_b64 = image_data
+            content = [{"type": "text", "text": prompt}]
             
-            messages = [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
-                ]
-            }]
+            # 处理单张或多张图片
+            if images_data:
+                # 多图模式
+                for img in images_data:
+                    if ',' in img:
+                        image_b64 = img.split(',')[1]
+                    else:
+                        image_b64 = img
+                    content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}})
+            elif image_data:
+                # 单图模式
+                if ',' in image_data:
+                    image_b64 = image_data.split(',')[1]
+                else:
+                    image_b64 = image_data
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}})
+            
+            messages = [{"role": "user", "content": content}]
         else:
             # 文生图模式
             messages = [{"role": "user", "content": prompt}]

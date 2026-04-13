@@ -58,12 +58,37 @@
 
                 <!-- 上传区域（图生图用） -->
                 <div id="uploadArea" class="upload-area" style="display: none;">
-                    <div id="uploadPreview" class="upload-preview">
-                        <img id="previewImage" style="display: none;">
-                        <button id="removeImage" class="btn-remove" style="display: none;" onclick="removeUploadedImage()">✕</button>
-                    </div>
-                    <div id="uploadPlaceholder" class="upload-placeholder" onclick="document.getElementById('imageInput').click()">
-                        <span>点击上传图片</span>
+                    <div class="upload-grid">
+                        <div class="upload-item" data-index="0" onclick="triggerUpload(0)">
+                            <div class="upload-placeholder"><span>参考图1</span></div>
+                            <img class="preview-img" style="display: none;">
+                            <button class="btn-remove" style="display: none;" onclick="event.stopPropagation(); removeUploadedImage(0)">✕</button>
+                        </div>
+                        <div class="upload-item" data-index="1" onclick="triggerUpload(1)">
+                            <div class="upload-placeholder"><span>参考图2</span></div>
+                            <img class="preview-img" style="display: none;">
+                            <button class="btn-remove" style="display: none;" onclick="event.stopPropagation(); removeUploadedImage(1)">✕</button>
+                        </div>
+                        <div class="upload-item" data-index="2" onclick="triggerUpload(2)">
+                            <div class="upload-placeholder"><span>参考图3</span></div>
+                            <img class="preview-img" style="display: none;">
+                            <button class="btn-remove" style="display: none;" onclick="event.stopPropagation(); removeUploadedImage(2)">✕</button>
+                        </div>
+                        <div class="upload-item" data-index="3" onclick="triggerUpload(3)">
+                            <div class="upload-placeholder"><span>参考图4</span></div>
+                            <img class="preview-img" style="display: none;">
+                            <button class="btn-remove" style="display: none;" onclick="event.stopPropagation(); removeUploadedImage(3)">✕</button>
+                        </div>
+                        <div class="upload-item" data-index="4" onclick="triggerUpload(4)">
+                            <div class="upload-placeholder"><span>参考图5</span></div>
+                            <img class="preview-img" style="display: none;">
+                            <button class="btn-remove" style="display: none;" onclick="event.stopPropagation(); removeUploadedImage(4)">✕</button>
+                        </div>
+                        <div class="upload-item" data-index="5" onclick="triggerUpload(5)">
+                            <div class="upload-placeholder"><span>参考图6</span></div>
+                            <img class="preview-img" style="display: none;">
+                            <button class="btn-remove" style="display: none;" onclick="event.stopPropagation(); removeUploadedImage(5)">✕</button>
+                        </div>
                     </div>
                     <input type="file" id="imageInput" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
                 </div>

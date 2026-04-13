@@ -98,7 +98,8 @@ const MODELS = {
 // 状态
 let currentResolution = '2K';
 let currentMode = 'text2image';  // text2image 或 image2image
-let uploadedImage = null;  // base64格式的已上传图片
+let uploadedImages = [null, null, null, null, null, null];  // 6张参考图
+let currentUploadIndex = 0;  // 当前上传的索引
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
@@ -241,6 +242,12 @@ function setupEventListeners() {
     });
 }
 
+// 触发上传（指定索引）
+function triggerUpload(index) {
+    currentUploadIndex = index;
+    document.getElementById('imageInput').click();
+}
+
 // 处理图片上传
 function handleImageUpload(event) {
     const file = event.target.files[0];
@@ -248,22 +255,36 @@ function handleImageUpload(event) {
     
     const reader = new FileReader();
     reader.onload = function(e) {
-        uploadedImage = e.target.result;
-        document.getElementById('previewImage').src = uploadedImage;
-        document.getElementById('previewImage').style.display = 'block';
-        document.getElementById('uploadPlaceholder').style.display = 'none';
-        document.getElementById('removeImage').style.display = 'block';
+        uploadedImages[currentUploadIndex] = e.target.result;
+        updateUploadPreview(currentUploadIndex);
     };
     reader.readAsDataURL(file);
 }
 
+// 更新上传预览
+function updateUploadPreview(index) {
+    const item = document.querySelectorAll('.upload-item')[index];
+    const img = item.querySelector('.preview-img');
+    const placeholder = item.querySelector('.upload-placeholder');
+    const removeBtn = item.querySelector('.btn-remove');
+    
+    if (uploadedImages[index]) {
+        img.src = uploadedImages[index];
+        img.style.display = 'block';
+        placeholder.style.display = 'none';
+        removeBtn.style.display = 'block';
+    } else {
+        img.src = '';
+        img.style.display = 'none';
+        placeholder.style.display = 'flex';
+        removeBtn.style.display = 'none';
+    }
+}
+
 // 移除已上传图片
-function removeUploadedImage() {
-    uploadedImage = null;
-    document.getElementById('previewImage').src = '';
-    document.getElementById('previewImage').style.display = 'none';
-    document.getElementById('uploadPlaceholder').style.display = 'flex';
-    document.getElementById('removeImage').style.display = 'none';
+function removeUploadedImage(index) {
+    uploadedImages[index] = null;
+    updateUploadPreview(index);
     document.getElementById('imageInput').value = '';
 }
 
@@ -283,9 +304,9 @@ async function sendGenerate() {
         return;
     }
     
-    // 图生图模式检查
-    if (currentMode === 'image2image' && !uploadedImage) {
-        alert('请上传一张图片');
+    // 图生图模式检查（至少上传一张图）
+    if (currentMode === 'image2image' && !uploadedImages.some(img => img !== null)) {
+        alert('请至少上传一张参考图');
         return;
     }
     
@@ -310,9 +331,14 @@ async function sendGenerate() {
             prompt: prompt
         };
         
-        // 图生图模式添加图片
-        if (currentMode === 'image2image' && uploadedImage) {
-            requestBody.image = uploadedImage;
+        // 图生图模式添加多张参考图
+        if (currentMode === 'image2image') {
+            const images = uploadedImages.filter(img => img !== null);
+            if (images.length === 1) {
+                requestBody.image = images[0];
+            } else {
+                requestBody.images = images;
+            }
         }
         
         const response = await fetch('/api/generate', {
