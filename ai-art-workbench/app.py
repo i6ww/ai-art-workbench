@@ -241,5 +241,6 @@ def health():
 
 
 if __name__ == '__main__':
-    debug = os.environ.get('FLASK_ENV') != 'production'
-    app.run(host='0.0.0.0', port=5000, debug=debug)
+    # 生产环境使用 waitress 运行时忽略此配置
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=5000, threads=4)

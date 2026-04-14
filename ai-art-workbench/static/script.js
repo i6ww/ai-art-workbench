@@ -368,21 +368,44 @@ async function sendGenerate() {
             }
         }
         
-        const response = await fetch('/api/generate', {
+        const response = await fetchWithRetry('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
-        
-        const data = await response.json();
-        
+
+        // 检查响应状态
+        if (!response.ok) {
+            document.getElementById('resultLoading').style.display = 'none';
+            document.getElementById('resultContent').innerHTML = `<div class="error">请求失败: HTTP ${response.status}</div>`;
+            return;
+        }
+
+        // 检查响应内容
+        const responseText = await response.text();
+        if (!responseText.trim()) {
+            document.getElementById('resultLoading').style.display = 'none';
+            document.getElementById('resultContent').innerHTML = `<div class="error">服务器返回空响应，请稍后重试</div>`;
+            return;
+        }
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            document.getElementById('resultLoading').style.display = 'none';
+            console.error('JSON解析失败:', responseText.substring(0, 200));
+            document.getElementById('resultContent').innerHTML = `<div class="error">响应格式错误，请稍后重试</div>`;
+            return;
+        }
+
         if (data.error) {
             document.getElementById('resultLoading').style.display = 'none';
             document.getElementById('resultContent').innerHTML = `<div class="error">生成失败: ${data.error}</div>`;
             if (data.debug) console.log('Debug:', data.debug);
             return;
         }
-        
+
         if (data.image) {
             document.getElementById('resultLoading').style.display = 'none';
             document.getElementById('resultContent').innerHTML = `
@@ -393,10 +416,16 @@ async function sendGenerate() {
                 </div>
             `;
         }
-        
+
     } catch (error) {
         document.getElementById('resultLoading').style.display = 'none';
-        document.getElementById('resultContent').innerHTML = `<div class="error">请求失败: ${error.message}</div>`;
+        let errorMsg = error.message;
+        if (error.name === 'AbortError') {
+            errorMsg = '请求超时(3分钟)，请检查网络后重试';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('net::ERR')) {
+            errorMsg = '网络连接被重置，已自动重试多次，请重试';
+        }
+        document.getElementById('resultContent').innerHTML = `<div class="error">请求失败: ${errorMsg}</div>`;
         console.error('Request error:', error);
     } finally {
         btn.disabled = false;
@@ -411,12 +440,50 @@ function viewImage(url) {
 
 // 下载图片
 function downloadImage(url) {
-    const link = document.createElement('a');
-    link.href = `/api/download?url=${encodeURIComponent(url)}`;
-    link.download = `ai-image-${Date.now()}.jpg`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    console.log('下载图片:', url);
+    if (!url) {
+        alert('没有可下载的图片');
+        return;
+    }
+
+    // 如果是 data URL（base64），直接下载
+    if (url.startsWith('data:')) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `ai-image-${Date.now()}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+    }
+
+    // 通过后端代理下载（处理跨域问题）
+    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}`;
+    console.log('下载链接:', downloadUrl);
+
+    // 使用 fetch 下载并转换为 blob，然后触发下载
+    fetch(downloadUrl)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('下载失败: ' + response.status);
+            }
+            return response.blob();
+        })
+        .then(blob => {
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = `ai-image-${Date.now()}.jpg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+        })
+        .catch(error => {
+            console.error('下载失败:', error);
+            // 降级：尝试直接打开链接
+            window.open(downloadUrl, '_blank');
+        });
 }
 
 // 历史记录
@@ -543,6 +610,44 @@ function removeBatchImage(taskIndex, imgIndex) {
     updateBatchUploadPreview(taskIndex, imgIndex);
 }
 
+// 带超时和重试的 fetch 函数
+async function fetchWithRetry(url, options, retries = 3, timeout = 180000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    const fetchOptions = {
+        ...options,
+        signal: controller.signal
+    };
+
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            const response = await fetch(url, fetchOptions);
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (attempt === retries) {
+                throw error;
+            }
+            // 网络错误时重试
+            const isNetworkError = error.name === 'AbortError' ||
+                                    error.message.includes('Failed to fetch') ||
+                                    error.message.includes('net::ERR') ||
+                                    error.message.includes('network');
+            if (isNetworkError) {
+                console.log(`请求失败，${attempt}/${retries} 次重试...`);
+                await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
+                const newController = new AbortController();
+                setTimeout(() => newController.abort(), timeout);
+                fetchOptions.signal = newController.signal;
+            } else {
+                throw error;
+            }
+        }
+    }
+}
+
 // 开始单个任务
 async function startTask(taskIndex) {
     const task = batchTasks[taskIndex];
@@ -582,13 +687,39 @@ async function startTask(taskIndex) {
             requestBody.images = images;
         }
 
-        const response = await fetch('/api/generate', {
+        const response = await fetchWithRetry('/api/generate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody)
         });
 
-        const data = await response.json();
+        // 检查响应状态
+        if (!response.ok) {
+            task.status = 'failed';
+            updateTaskUI(taskIndex);
+            alert(`任务${taskIndex + 1}请求失败: HTTP ${response.status}`);
+            return;
+        }
+
+        // 检查响应内容
+        const responseText = await response.text();
+        if (!responseText.trim()) {
+            task.status = 'failed';
+            updateTaskUI(taskIndex);
+            alert(`任务${taskIndex + 1}收到空响应，服务器可能正在重启`);
+            return;
+        }
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (e) {
+            task.status = 'failed';
+            updateTaskUI(taskIndex);
+            console.error('JSON解析失败:', responseText.substring(0, 200));
+            alert(`任务${taskIndex + 1}响应格式错误`);
+            return;
+        }
 
         if (data.error) {
             task.status = 'failed';
@@ -607,6 +738,13 @@ async function startTask(taskIndex) {
         task.status = 'failed';
         updateTaskUI(taskIndex);
         console.error('Task error:', error);
+        let errorMsg = '网络连接失败';
+        if (error.name === 'AbortError') {
+            errorMsg = '请求超时(3分钟)，请检查网络后重试';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('net::ERR')) {
+            errorMsg = '网络连接被重置，已自动重试多次，请重试';
+        }
+        alert(`任务${taskIndex + 1}错误: ${errorMsg}`);
     }
 }
 
