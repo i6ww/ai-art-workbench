@@ -124,6 +124,33 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
 });
 
+// 新建对话
+function newChat() {
+    // 清空输入框
+    document.getElementById('messageInput').value = '';
+    
+    // 清空上传的图片
+    uploadedImages = [null, null, null, null, null, null];
+    for (let i = 0; i < 6; i++) {
+        updateUploadPreview(i);
+    }
+    
+    // 清空结果区域
+    document.getElementById('resultArea').style.display = 'none';
+    document.getElementById('resultContent').innerHTML = '';
+    
+    // 切换回文生图模式
+    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector('.mode-tab[data-mode="text2image"]').classList.add('active');
+    currentMode = 'text2image';
+    document.getElementById('uploadArea').style.display = 'none';
+    document.getElementById('batchArea').style.display = 'none';
+    document.getElementById('welcomeMessage').style.display = 'flex';
+    
+    // 聚焦到输入框
+    document.getElementById('messageInput').focus();
+}
+
 // 加载设置
 function loadSettings() {
     currentResolution = localStorage.getItem('resolution') || '2K';
