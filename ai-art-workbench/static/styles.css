@@ -179,6 +179,26 @@ body::before {
     gap: 12px;
 }
 
+.btn-new-chat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: var(--accent-primary);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.btn-new-chat:hover {
+    background: var(--accent-secondary);
+    transform: translateY(-1px);
+}
+
 .btn-icon {
     width: 40px;
     height: 40px;
@@ -444,6 +464,23 @@ body::before {
 .result-area {
     width: 100%;
     max-width: 800px;
+    margin-top: 24px;
+    padding-top: 24px;
+    border-top: 2px solid var(--border-color);
+    position: relative;
+}
+
+.result-area::before {
+    content: '生成结果';
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-primary);
+    padding: 0 16px;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    border-radius: 4px;
 }
 
 .loading {
@@ -474,7 +511,9 @@ body::before {
 }
 
 .result-content img {
-    max-width: 100%;
+    max-width: min(600px, 100%);
+    max-height: 60vh;
+    object-fit: contain;
     border-radius: 12px;
     box-shadow: var(--shadow-lg);
     cursor: pointer;
@@ -618,6 +657,24 @@ body::before {
 .form-group input:focus {
     outline: none;
     border-color: var(--accent-primary);
+}
+
+.api-key-input-wrapper {
+    position: relative;
+}
+
+.api-key-input-wrapper input {
+    padding-right: 60px;
+}
+
+.api-key-saved {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--accent-primary);
+    font-weight: 500;
 }
 
 .model-select {

@@ -6,6 +6,12 @@ import base64
 import time
 
 import os
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'), static_url_path='/')
 
@@ -109,6 +115,10 @@ MODELS = {
 }
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204  # 返回空响应
+
 @app.route('/')
 def index():
     return app.send_static_file('index.html')
@@ -121,14 +131,27 @@ def get_models():
 
 @app.route('/api/generate', methods=['POST'])
 def generate():
+    logger.info(f"收到生成请求")
+    
+    # 检查 Content-Type
+    if not request.is_json:
+        logger.error(f"Content-Type 不是 application/json")
+        return jsonify({'error': 'Content-Type 必须为 application/json'}), 400
+    
     data = request.json
     api_key = data.get('apiKey')
     model = data.get('model')
     prompt = data.get('prompt')
     image_data = data.get('image')  # 单张图片
     images_data = data.get('images')  # 多张图片
+    
+    # 日志请求参数（敏感信息脱敏）
+    has_image = bool(image_data or images_data)
+    prompt_preview = prompt[:100] + '...' if prompt and len(prompt) > 100 else prompt
+    logger.info(f"请求参数: model={model}, prompt长度={len(prompt) if prompt else 0}, 有图片={has_image}")
 
     if not api_key or not model or not prompt:
+        logger.error(f"缺少必要参数: api_key={bool(api_key)}, model={model}, prompt={bool(prompt)}")
         return jsonify({'error': '缺少必要参数'}), 400
 
     try:
@@ -160,6 +183,7 @@ def generate():
             messages = [{"role": "user", "content": prompt}]
 
         # 调用API（非流式，更容易解析）
+        logger.info(f"正在调用API: {BASE_URL}/v1/chat/completions, 模型: {model}")
         try:
             response = requests.post(
                 f"{BASE_URL}/v1/chat/completions",
@@ -170,20 +194,40 @@ def generate():
                 },
                 timeout=120  # 2分钟超时
             )
+            logger.info(f"API响应状态码: {response.status_code}")
         except requests.exceptions.Timeout:
+            logger.error("API请求超时")
             return jsonify({'error': '请求超时，请重试'}), 500
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"无法连接到API服务器: {e}")
             return jsonify({'error': '无法连接到API服务器'}), 500
         except Exception as e:
+            logger.error(f"连接异常: {e}")
             return jsonify({'error': f'连接错误: {str(e)}'}), 500
 
         if response.status_code != 200:
-            return jsonify({'error': f'HTTP {response.status_code}: {response.text[:200]}'}), 500
+            error_detail = response.text[:200]
+            logger.error(f"API返回错误状态码: {response.status_code}, 响应: {error_detail}")
+            
+            # 更友好的错误提示
+            if response.status_code == 401:
+                return jsonify({'error': 'API Key无效或已过期，请检查后重新输入'}), 401
+            elif response.status_code == 403:
+                return jsonify({'error': 'API Key没有访问权限'}), 403
+            elif response.status_code == 429:
+                return jsonify({'error': '请求过于频繁，请稍后再试'}), 429
+            else:
+                return jsonify({'error': f'HTTP {response.status_code}: {error_detail}'}), response.status_code
 
         # 解析响应
-        result = response.json()
+        try:
+            result = response.json()
+        except Exception as e:
+            logger.error(f"JSON解析失败: {e}, 响应文本: {response.text[:500]}")
+            return jsonify({'error': f'响应解析失败: {str(e)}'}), 500
         
         if 'choices' not in result or not result['choices']:
+            logger.error(f"API返回格式错误: {str(result)[:500]}")
             return jsonify({'error': 'API返回格式错误', 'debug': str(result)[:200]}), 500
 
         content = result['choices'][0]['message']['content']
@@ -204,14 +248,28 @@ def generate():
                     image_urls.append(match)
 
         if image_urls:
+            logger.info(f"成功提取图片数量: {len(image_urls)}")
             return jsonify({'image': image_urls[0], 'allImages': image_urls, 'content': content})
         else:
+            logger.warning(f"未找到图片，内容前500字符: {content[:500]}")
             return jsonify({'error': '未找到图片', 'debug': content[:500]}), 500
 
     except requests.exceptions.Timeout:
-        return jsonify({'error': '请求超时'}), 500
+        logger.error("API请求超时")
+        return jsonify({'error': '请求超时，请稍后重试'}), 500
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"连接错误: {e}")
+        return jsonify({'error': '无法连接到API服务器，请稍后重试'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"生成图片时发生错误: {e}")
+        return jsonify({'error': f'服务器错误: {str(e)}'}), 500
+
+
+# 全局错误处理器
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"未处理的异常: {e}")
+    return jsonify({'error': f'服务器内部错误: {str(e)}'}), 500
 
 
 @app.route('/api/download')
