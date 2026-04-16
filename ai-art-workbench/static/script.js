@@ -118,6 +118,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSettings();
     loadTheme();
     loadHistory();
+    loadApiKey();
     initModelSelect();
     initBatchModelSelect();
     setupEventListeners();
@@ -126,14 +127,23 @@ document.addEventListener('DOMContentLoaded', () => {
 // 加载设置
 function loadSettings() {
     currentResolution = localStorage.getItem('resolution') || '2K';
-    
+
     // 更新UI
     document.querySelectorAll('.resolution-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.res === currentResolution);
     });
-    
+
     // 更新模型列表
     updateModels();
+}
+
+// 加载保存的API Key
+function loadApiKey() {
+    const savedApiKey = localStorage.getItem('apiKey');
+    if (savedApiKey) {
+        document.getElementById('apiKey').value = savedApiKey;
+        document.getElementById('apiKeySaved').style.display = 'inline';
+    }
 }
 
 // 加载主题
@@ -266,6 +276,20 @@ function setupEventListeners() {
     document.getElementById('batchResolutionSelect').addEventListener('change', function() {
         currentResolution = this.value;
         updateBatchModels();
+    });
+
+    // API Key 自动保存
+    const apiKeyInput = document.getElementById('apiKey');
+    const apiKeySaved = document.getElementById('apiKeySaved');
+    apiKeyInput.addEventListener('input', function() {
+        const value = this.value.trim();
+        if (value) {
+            localStorage.setItem('apiKey', value);
+            apiKeySaved.style.display = 'inline';
+        } else {
+            localStorage.removeItem('apiKey');
+            apiKeySaved.style.display = 'none';
+        }
     });
 }
 
