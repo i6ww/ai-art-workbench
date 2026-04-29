@@ -291,6 +291,8 @@ def generate():
 
         if image_urls:
             logger.info(f"成功提取图片数量: {len(image_urls)}")
+            # 将所有 HTTP URL 替换为 HTTPS，解决混合内容问题
+            image_urls = [url.replace('http://', 'https://') for url in image_urls]
             return jsonify({'image': image_urls[0], 'allImages': image_urls, 'content': content})
         else:
             logger.warning(f"未找到图片，内容前500字符: {content[:500]}")
