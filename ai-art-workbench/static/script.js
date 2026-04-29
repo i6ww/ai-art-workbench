@@ -526,12 +526,13 @@ async function sendGenerate() {
         }
 
         if (data.image) {
+            const httpsUrl = ensureHttps(data.image);
             document.getElementById('resultLoading').style.display = 'none';
             document.getElementById('resultContent').innerHTML = `
-                <img src="${data.image}" alt="生成结果" onclick="window.open('${data.image}', '_blank')">
+                <img src="${httpsUrl}" alt="生成结果" onclick="window.open('${httpsUrl}', '_blank')">
                 <div class="result-actions">
-                    <button onclick="viewImage('${data.image}')">查看大图</button>
-                    <button onclick="downloadImage('${data.image}')">下载</button>
+                    <button onclick="viewImage('${httpsUrl}')">查看大图</button>
+                    <button onclick="downloadImage('${httpsUrl}')">下载</button>
                 </div>
             `;
         }
@@ -552,9 +553,19 @@ async function sendGenerate() {
     }
 }
 
+// 将 HTTP URL 转换为 HTTPS，解决混合内容问题
+function ensureHttps(url) {
+    if (!url) return url;
+    // 将 HTTP URL 转换为 HTTPS
+    if (url.startsWith('http://')) {
+        return url.replace('http://', 'https://');
+    }
+    return url;
+}
+
 // 查看大图
 function viewImage(url) {
-    window.open(url, '_blank');
+    window.open(ensureHttps(url), '_blank');
 }
 
 // 下载图片
@@ -848,7 +859,7 @@ async function startTask(taskIndex) {
         }
 
         if (data.image) {
-            task.result = data.image;
+            task.result = ensureHttps(data.image);
             task.status = 'completed';
             updateTaskUI(taskIndex);
         }
