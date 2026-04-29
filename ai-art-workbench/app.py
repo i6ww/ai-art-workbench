@@ -20,6 +20,12 @@ BASE_URL = "https://www.371181668.xyz"
 # 模型列表
 MODELS = {
     "1K": [
+        # firefly-gpt-image-2 系列
+        "firefly-gpt-image-2-16x9",
+        "firefly-gpt-image-2-1x1",
+        "firefly-gpt-image-2-2x3",
+        "firefly-gpt-image-2-3x2",
+        # nano-banana 系列
         "firefly-nano-banana-1k-16x9",
         "firefly-nano-banana-1k-1x1",
         "firefly-nano-banana-1k-21x9",
@@ -111,6 +117,42 @@ MODELS = {
         "firefly-nano-banana2-4k-5x4",
         "firefly-nano-banana2-4k-8x1",
         "firefly-nano-banana2-4k-9x16",
+    ],
+    "GPT2": [
+        # firefly-gpt-image-2 标准比例
+        "firefly-gpt-image-2-16x9",
+        "firefly-gpt-image-2-1x1",
+        "firefly-gpt-image-2-2x3",
+        "firefly-gpt-image-2-3x2",
+        "firefly-gpt-image-2-4x3",
+        "firefly-gpt-image-2-4x5",
+        "firefly-gpt-image-2-5x4",
+        "firefly-gpt-image-2-9x16",
+        # firefly-gpt-image-2-4k 系列 (h=高质量, l=低质量, m=中等质量)
+        "firefly-gpt-image-2-4k-16x9-h",
+        "firefly-gpt-image-2-4k-16x9-m",
+        "firefly-gpt-image-2-4k-16x9-l",
+        "firefly-gpt-image-2-4k-1x1-h",
+        "firefly-gpt-image-2-4k-1x1-m",
+        "firefly-gpt-image-2-4k-1x1-l",
+        "firefly-gpt-image-2-4k-2x3-h",
+        "firefly-gpt-image-2-4k-2x3-m",
+        "firefly-gpt-image-2-4k-2x3-l",
+        "firefly-gpt-image-2-4k-3x2-h",
+        "firefly-gpt-image-2-4k-3x2-m",
+        "firefly-gpt-image-2-4k-3x2-l",
+        "firefly-gpt-image-2-4k-4x3-h",
+        "firefly-gpt-image-2-4k-4x3-m",
+        "firefly-gpt-image-2-4k-4x3-l",
+        "firefly-gpt-image-2-4k-4x5-h",
+        "firefly-gpt-image-2-4k-4x5-m",
+        "firefly-gpt-image-2-4k-4x5-l",
+        "firefly-gpt-image-2-4k-5x4-h",
+        "firefly-gpt-image-2-4k-5x4-m",
+        "firefly-gpt-image-2-4k-5x4-l",
+        "firefly-gpt-image-2-4k-9x16-h",
+        "firefly-gpt-image-2-4k-9x16-m",
+        "firefly-gpt-image-2-4k-9x16-l",
     ],
 }
 

@@ -1,6 +1,12 @@
 // 模型数据
 const MODELS = {
     "1K": [
+        // firefly-gpt-image-2 系列
+        "firefly-gpt-image-2-16x9",
+        "firefly-gpt-image-2-1x1",
+        "firefly-gpt-image-2-2x3",
+        "firefly-gpt-image-2-3x2",
+        // nano-banana 系列
         "firefly-nano-banana-1k-16x9",
         "firefly-nano-banana-1k-1x1",
         "firefly-nano-banana-1k-21x9",
@@ -92,7 +98,43 @@ const MODELS = {
         "firefly-nano-banana2-4k-5x4",
         "firefly-nano-banana2-4k-8x1",
         "firefly-nano-banana2-4k-9x16",
-    ]
+    ],
+    "GPT2": [
+        // firefly-gpt-image-2 标准比例
+        "firefly-gpt-image-2-16x9",
+        "firefly-gpt-image-2-1x1",
+        "firefly-gpt-image-2-2x3",
+        "firefly-gpt-image-2-3x2",
+        "firefly-gpt-image-2-4x3",
+        "firefly-gpt-image-2-4x5",
+        "firefly-gpt-image-2-5x4",
+        "firefly-gpt-image-2-9x16",
+        // firefly-gpt-image-2-4k 系列 (h=高质量, l=低质量, m=中等质量)
+        "firefly-gpt-image-2-4k-16x9-h",
+        "firefly-gpt-image-2-4k-16x9-m",
+        "firefly-gpt-image-2-4k-16x9-l",
+        "firefly-gpt-image-2-4k-1x1-h",
+        "firefly-gpt-image-2-4k-1x1-m",
+        "firefly-gpt-image-2-4k-1x1-l",
+        "firefly-gpt-image-2-4k-2x3-h",
+        "firefly-gpt-image-2-4k-2x3-m",
+        "firefly-gpt-image-2-4k-2x3-l",
+        "firefly-gpt-image-2-4k-3x2-h",
+        "firefly-gpt-image-2-4k-3x2-m",
+        "firefly-gpt-image-2-4k-3x2-l",
+        "firefly-gpt-image-2-4k-4x3-h",
+        "firefly-gpt-image-2-4k-4x3-m",
+        "firefly-gpt-image-2-4k-4x3-l",
+        "firefly-gpt-image-2-4k-4x5-h",
+        "firefly-gpt-image-2-4k-4x5-m",
+        "firefly-gpt-image-2-4k-4x5-l",
+        "firefly-gpt-image-2-4k-5x4-h",
+        "firefly-gpt-image-2-4k-5x4-m",
+        "firefly-gpt-image-2-4k-5x4-l",
+        "firefly-gpt-image-2-4k-9x16-h",
+        "firefly-gpt-image-2-4k-9x16-m",
+        "firefly-gpt-image-2-4k-9x16-l",
+    ],
 };
 
 // 状态
@@ -230,6 +272,7 @@ function updateModels() {
 
 // 获取模型版本
 function getModelVersion(model) {
+    if (model.includes('gpt-image-2')) return 'firefly-gpt-image-2';
     if (model.includes('nano-banana-pro')) return 'firefly-nano-banana-pro';
     if (model.includes('nano-banana2')) return 'firefly-nano-banana2';
     if (model.includes('nano-banana')) return 'firefly-nano-banana';
@@ -238,6 +281,18 @@ function getModelVersion(model) {
 
 // 获取比例显示
 function getRatioDisplay(model) {
+    // GPT Image 2 4K 模型特殊处理
+    if (model.includes('gpt-image-2-4k-')) {
+        const match = model.match(/gpt-image-2-4k-(\d+)x(\d+)-([hml])/);
+        if (match) {
+            const w = match[1], h = match[2], quality = match[3];
+            const qualityMap = { h: '高质量', m: '中质量', l: '低质量' };
+            const qLabel = qualityMap[quality] || quality;
+            const label = w === h ? '方形' : (parseInt(w) > parseInt(h) ? '横屏' : '竖屏');
+            return `${w}:${h} ${label} (${qLabel})`;
+        }
+    }
+    
     const ratioMatch = model.match(/(\d+)x(\d+)/);
     if (ratioMatch) {
         const w = ratioMatch[1];
