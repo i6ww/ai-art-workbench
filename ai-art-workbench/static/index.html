@@ -328,6 +328,10 @@
                         <input type="password" id="apiKey" placeholder="输入你的 API Key">
                         <span class="api-key-saved" id="apiKeySaved" style="display: none;">已保存</span>
                     </div>
+                    <label class="remember-api-key">
+                        <input type="checkbox" id="rememberApiKey">
+                        记住 API Key（保存在本机浏览器）
+                    </label>
                 </div>
             </div>
             
@@ -349,6 +353,7 @@
                 <h3>📋 更新日志</h3>
                 <div class="changelog">
                     <ul class="changelog-list">
+                        <li><span class="date">05.03</span> 模型列表改由后端下发；下载接口域名白名单；可选「记住 API Key」</li>
                         <li><span class="date">04.16</span> 修复网络超时问题，新增请求自动重试</li>
                         <li><span class="date">04.16</span> 优化错误提示，API Key过期等问题更清晰</li>
                         <li><span class="date">04.16</span> 新增新建对话按钮和API Key自动保存</li>

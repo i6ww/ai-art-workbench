@@ -1,141 +1,13 @@
-// 模型数据
-const MODELS = {
-    "1K": [
-        // firefly-gpt-image-2 系列
-        "firefly-gpt-image-2-16x9",
-        "firefly-gpt-image-2-1x1",
-        "firefly-gpt-image-2-2x3",
-        "firefly-gpt-image-2-3x2",
-        // nano-banana 系列
-        "firefly-nano-banana-1k-16x9",
-        "firefly-nano-banana-1k-1x1",
-        "firefly-nano-banana-1k-21x9",
-        "firefly-nano-banana-1k-3x4",
-        "firefly-nano-banana-1k-4x3",
-        "firefly-nano-banana-1k-4x5",
-        "firefly-nano-banana-1k-5x4",
-        "firefly-nano-banana-1k-9x16",
-        "firefly-nano-banana-pro-1k-16x9",
-        "firefly-nano-banana-pro-1k-1x1",
-        "firefly-nano-banana-pro-1k-21x9",
-        "firefly-nano-banana-pro-1k-3x4",
-        "firefly-nano-banana-pro-1k-4x3",
-        "firefly-nano-banana-pro-1k-4x5",
-        "firefly-nano-banana-pro-1k-5x4",
-        "firefly-nano-banana-pro-1k-9x16",
-        "firefly-nano-banana2-1k-16x9",
-        "firefly-nano-banana2-1k-1x1",
-        "firefly-nano-banana2-1k-1x4",
-        "firefly-nano-banana2-1k-1x8",
-        "firefly-nano-banana2-1k-21x9",
-        "firefly-nano-banana2-1k-2x3",
-        "firefly-nano-banana2-1k-3x2",
-        "firefly-nano-banana2-1k-3x4",
-        "firefly-nano-banana2-1k-4x3",
-        "firefly-nano-banana2-1k-4x5",
-        "firefly-nano-banana2-1k-5x4",
-        "firefly-nano-banana2-1k-8x1",
-        "firefly-nano-banana2-1k-9x16",
-    ],
-    "2K": [
-        "firefly-nano-banana-2k-16x9",
-        "firefly-nano-banana-2k-1x1",
-        "firefly-nano-banana-2k-21x9",
-        "firefly-nano-banana-2k-3x4",
-        "firefly-nano-banana-2k-4x3",
-        "firefly-nano-banana-2k-4x5",
-        "firefly-nano-banana-2k-5x4",
-        "firefly-nano-banana-2k-9x16",
-        "firefly-nano-banana-pro-2k-16x9",
-        "firefly-nano-banana-pro-2k-1x1",
-        "firefly-nano-banana-pro-2k-21x9",
-        "firefly-nano-banana-pro-2k-3x4",
-        "firefly-nano-banana-pro-2k-4x3",
-        "firefly-nano-banana-pro-2k-4x5",
-        "firefly-nano-banana-pro-2k-5x4",
-        "firefly-nano-banana-pro-2k-9x16",
-        "firefly-nano-banana2-2k-16x9",
-        "firefly-nano-banana2-2k-1x1",
-        "firefly-nano-banana2-2k-1x4",
-        "firefly-nano-banana2-2k-1x8",
-        "firefly-nano-banana2-2k-21x9",
-        "firefly-nano-banana2-2k-2x3",
-        "firefly-nano-banana2-2k-3x2",
-        "firefly-nano-banana2-2k-3x4",
-        "firefly-nano-banana2-2k-4x3",
-        "firefly-nano-banana2-2k-4x5",
-        "firefly-nano-banana2-2k-5x4",
-        "firefly-nano-banana2-2k-8x1",
-        "firefly-nano-banana2-2k-9x16",
-    ],
-    "4K": [
-        "firefly-nano-banana-4k-16x9",
-        "firefly-nano-banana-4k-1x1",
-        "firefly-nano-banana-4k-21x9",
-        "firefly-nano-banana-4k-3x4",
-        "firefly-nano-banana-4k-4x3",
-        "firefly-nano-banana-4k-4x5",
-        "firefly-nano-banana-4k-5x4",
-        "firefly-nano-banana-4k-9x16",
-        "firefly-nano-banana-pro-4k-16x9",
-        "firefly-nano-banana-pro-4k-1x1",
-        "firefly-nano-banana-pro-4k-21x9",
-        "firefly-nano-banana-pro-4k-3x4",
-        "firefly-nano-banana-pro-4k-4x3",
-        "firefly-nano-banana-pro-4k-4x5",
-        "firefly-nano-banana-pro-4k-5x4",
-        "firefly-nano-banana-pro-4k-9x16",
-        "firefly-nano-banana2-4k-16x9",
-        "firefly-nano-banana2-4k-1x1",
-        "firefly-nano-banana2-4k-1x4",
-        "firefly-nano-banana2-4k-1x8",
-        "firefly-nano-banana2-4k-21x9",
-        "firefly-nano-banana2-4k-2x3",
-        "firefly-nano-banana2-4k-3x2",
-        "firefly-nano-banana2-4k-3x4",
-        "firefly-nano-banana2-4k-4x3",
-        "firefly-nano-banana2-4k-4x5",
-        "firefly-nano-banana2-4k-5x4",
-        "firefly-nano-banana2-4k-8x1",
-        "firefly-nano-banana2-4k-9x16",
-    ],
-    "GPT2": [
-        // firefly-gpt-image-2 标准比例
-        "firefly-gpt-image-2-16x9",
-        "firefly-gpt-image-2-1x1",
-        "firefly-gpt-image-2-2x3",
-        "firefly-gpt-image-2-3x2",
-        "firefly-gpt-image-2-4x3",
-        "firefly-gpt-image-2-4x5",
-        "firefly-gpt-image-2-5x4",
-        "firefly-gpt-image-2-9x16",
-        // firefly-gpt-image-2-4k 系列 (h=高质量, l=低质量, m=中等质量)
-        "firefly-gpt-image-2-4k-16x9-h",
-        "firefly-gpt-image-2-4k-16x9-m",
-        "firefly-gpt-image-2-4k-16x9-l",
-        "firefly-gpt-image-2-4k-1x1-h",
-        "firefly-gpt-image-2-4k-1x1-m",
-        "firefly-gpt-image-2-4k-1x1-l",
-        "firefly-gpt-image-2-4k-2x3-h",
-        "firefly-gpt-image-2-4k-2x3-m",
-        "firefly-gpt-image-2-4k-2x3-l",
-        "firefly-gpt-image-2-4k-3x2-h",
-        "firefly-gpt-image-2-4k-3x2-m",
-        "firefly-gpt-image-2-4k-3x2-l",
-        "firefly-gpt-image-2-4k-4x3-h",
-        "firefly-gpt-image-2-4k-4x3-m",
-        "firefly-gpt-image-2-4k-4x3-l",
-        "firefly-gpt-image-2-4k-4x5-h",
-        "firefly-gpt-image-2-4k-4x5-m",
-        "firefly-gpt-image-2-4k-4x5-l",
-        "firefly-gpt-image-2-4k-5x4-h",
-        "firefly-gpt-image-2-4k-5x4-m",
-        "firefly-gpt-image-2-4k-5x4-l",
-        "firefly-gpt-image-2-4k-9x16-h",
-        "firefly-gpt-image-2-4k-9x16-m",
-        "firefly-gpt-image-2-4k-9x16-l",
-    ],
-};
+// 模型数据（由 /api/models 注入）
+let modelsData = {};
+
+async function loadModelsFromApi() {
+    const r = await fetch('/api/models');
+    if (!r.ok) {
+        throw new Error('无法加载模型列表');
+    }
+    modelsData = await r.json();
+}
 
 // 状态
 let currentResolution = '2K';
@@ -156,10 +28,16 @@ let currentBatchUploadTask = 0;
 let currentBatchUploadIndex = 0;
 
 // 初始化
-document.addEventListener('DOMContentLoaded', () => {
-    loadSettings();
+document.addEventListener('DOMContentLoaded', async () => {
     loadTheme();
     loadHistory();
+    try {
+        await loadModelsFromApi();
+    } catch (e) {
+        console.error(e);
+        modelsData = {};
+    }
+    loadSettings();
     loadApiKey();
     initModelSelect();
     initBatchModelSelect();
@@ -206,12 +84,21 @@ function loadSettings() {
     updateModels();
 }
 
-// 加载保存的API Key
+// 加载保存的 API Key（仅当用户勾选「记住」）
 function loadApiKey() {
-    const savedApiKey = localStorage.getItem('apiKey');
-    if (savedApiKey) {
-        document.getElementById('apiKey').value = savedApiKey;
-        document.getElementById('apiKeySaved').style.display = 'inline';
+    const remember = localStorage.getItem('rememberApiKey') === '1';
+    const cb = document.getElementById('rememberApiKey');
+    if (cb) {
+        cb.checked = remember;
+    }
+    if (remember) {
+        const savedApiKey = localStorage.getItem('apiKey');
+        if (savedApiKey) {
+            document.getElementById('apiKey').value = savedApiKey;
+            document.getElementById('apiKeySaved').style.display = 'inline';
+        }
+    } else {
+        localStorage.removeItem('apiKey');
     }
 }
 
@@ -250,7 +137,7 @@ function updateModels() {
     const select = document.getElementById('modelSelect');
     select.innerHTML = '';
     
-    const models = MODELS[currentResolution] || [];
+    const models = modelsData[currentResolution] || [];
     let lastVersion = '';
     
     models.forEach(model => {
@@ -360,14 +247,15 @@ function setupEventListeners() {
         updateBatchModels();
     });
 
-    // API Key 自动保存（使用 blur 事件，避免浏览器自动填充触发保存）
     const apiKeyInput = document.getElementById('apiKey');
     const apiKeySaved = document.getElementById('apiKeySaved');
-    
-    // 保存函数
+    const rememberApiKey = document.getElementById('rememberApiKey');
+
     function saveApiKey() {
+        const remember = rememberApiKey && rememberApiKey.checked;
+        localStorage.setItem('rememberApiKey', remember ? '1' : '0');
         const value = apiKeyInput.value.trim();
-        if (value) {
+        if (remember && value) {
             localStorage.setItem('apiKey', value);
             apiKeySaved.style.display = 'inline';
         } else {
@@ -375,17 +263,28 @@ function setupEventListeners() {
             apiKeySaved.style.display = 'none';
         }
     }
-    
-    // 失去焦点时保存（用户主动离开输入框时）
+
     apiKeyInput.addEventListener('blur', saveApiKey);
-    
-    // 按回车时也保存
+
     apiKeyInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             saveApiKey();
             apiKeyInput.blur();
         }
     });
+
+    if (rememberApiKey) {
+        rememberApiKey.addEventListener('change', function() {
+            if (!this.checked) {
+                localStorage.setItem('rememberApiKey', '0');
+                localStorage.removeItem('apiKey');
+                apiKeySaved.style.display = 'none';
+            } else {
+                localStorage.setItem('rememberApiKey', '1');
+                saveApiKey();
+            }
+        });
+    }
 }
 
 // 触发上传（指定索引）
@@ -663,7 +562,7 @@ function updateBatchModels() {
     const select = document.getElementById('batchModelSelect');
     select.innerHTML = '';
 
-    const models = MODELS[currentResolution] || [];
+    const models = modelsData[currentResolution] || [];
     let lastVersion = '';
 
     models.forEach(model => {

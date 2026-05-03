@@ -677,6 +677,23 @@ body::before {
     font-weight: 500;
 }
 
+.remember-api-key {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.remember-api-key input {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
+}
+
 .model-select {
     width: 100%;
     padding: 12px;
