@@ -8,6 +8,9 @@ venv/
 .env.*
 !.env.example
 
+# Local API key for model refresh script only
+.model_fetch_key
+
 # Local scratch / accidental notes (do not commit)
 Firefly
 香蕉

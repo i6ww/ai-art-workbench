@@ -1,0 +1,3 @@
+# Copy this file to ".model_fetch_key" (same folder as app.py) and replace with your real key.
+# One line only, no quotes:
+# sk-xxxxxxxx

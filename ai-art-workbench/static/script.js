@@ -159,7 +159,9 @@ function updateModels() {
 
 // 获取模型版本
 function getModelVersion(model) {
-    if (model.includes('gpt-image-2')) return 'firefly-gpt-image-2';
+    if (model.startsWith('gemini-')) return 'Google Gemini 图像';
+    if (model === 'gpt-image-2') return 'OpenAI gpt-image-2';
+    if (model.includes('firefly-gpt-image')) return 'firefly-gpt-image-2';
     if (model.includes('nano-banana-pro')) return 'firefly-nano-banana-pro';
     if (model.includes('nano-banana2')) return 'firefly-nano-banana2';
     if (model.includes('nano-banana')) return 'firefly-nano-banana';
@@ -168,6 +170,15 @@ function getModelVersion(model) {
 
 // 获取比例显示
 function getRatioDisplay(model) {
+    if (model === 'firefly-gpt-image-2-4k') {
+        return '默认 (4K)';
+    }
+    if (model.startsWith('gemini-')) {
+        return model
+            .replace(/-preview-c$/, '')
+            .replace(/^gemini-/, '')
+            .replace(/-/g, ' ');
+    }
     // GPT Image 2 4K 模型特殊处理
     if (model.includes('gpt-image-2-4k-')) {
         const match = model.match(/gpt-image-2-4k-(\d+)x(\d+)-([hml])/);
@@ -333,6 +344,62 @@ function removeUploadedImage(index) {
     document.getElementById('imageInput').value = '';
 }
 
+/**
+ * 若服务端仍返回上游英文说明，转为对用户可读的中文。
+ */
+function localizeApiErrorMessage(status, rawMsg) {
+    const msg = (rawMsg || '').trim();
+    if (!msg) return msg;
+    const low = msg.toLowerCase();
+    if (
+        status === 400 &&
+        (low.includes('image too large') ||
+            low.includes('image_too_large') ||
+            (low.includes('too large') && low.includes('mb') && low.includes('max')))
+    ) {
+        return (
+            '参考图体积过大：上游限制单张不超过约 10MB，请压缩或裁剪图片后再试；' +
+            '多张参考图时可减少张数。'
+        );
+    }
+    if (status === 400 && low.includes('payload too large')) {
+        return '请求体过大：请压缩参考图或减少图片数量后再试。';
+    }
+    return msg;
+}
+
+/**
+ * 请求失败后展示给用户的说明：优先使用服务端 JSON 里的 error 字段。
+ */
+function describeHttpFailure(status, responseText) {
+    if (responseText && responseText.trim()) {
+        try {
+            const j = JSON.parse(responseText);
+            if (j.error && typeof j.error === 'string' && j.error.trim()) {
+                return localizeApiErrorMessage(status, j.error.trim());
+            }
+        } catch (_) {
+            const snippet = responseText.trim().slice(0, 120);
+            if (snippet && status >= 500) {
+                return `服务暂时异常（HTTP ${status}）。请稍后重试；若持续出现请联系管理员。`;
+            }
+        }
+    }
+    const hints = {
+        400: '请求无效：请检查是否选择了模型、填写了提示词；图生图时请上传参考图，且单张参考图建议不超过约 10MB。',
+        401: '认证失败：API Key 无效、已过期或未填写。请在右侧「API 设置」中重新粘贴密钥，或登录控制台核对 Key 是否仍然有效。',
+        403: '权限不足：当前 Key 无权使用该模型或调用接口，请更换 Key 或联系管理员开通权限。',
+        404: '接口不存在或服务未就绪，请稍后重试。',
+        408: '请求超时，请稍后重试。',
+        413: '上传内容过大：请减少参考图数量或缩小图片后再试。',
+        429: '请求过于频繁：请等待片刻后再生成。',
+        500: '服务器处理出错：请稍后重试；若反复出现请截图联系管理员。',
+        502: '上游网关或服务不可用：请稍后重试。',
+        503: '服务繁忙或维护中：请稍后再试。',
+    };
+    return hints[status] || `请求未完成（HTTP ${status}）。请检查网络后重试；若多次失败请联系管理员。`;
+}
+
 // 发送生成请求
 async function sendGenerate() {
     const prompt = document.getElementById('messageInput').value.trim();
@@ -392,15 +459,17 @@ async function sendGenerate() {
             body: JSON.stringify(requestBody)
         });
 
-        // 检查响应状态
+        const responseText = await response.text();
+
         if (!response.ok) {
             document.getElementById('resultLoading').style.display = 'none';
-            document.getElementById('resultContent').innerHTML = `<div class="error">请求失败: HTTP ${response.status}</div>`;
+            const msg = describeHttpFailure(response.status, responseText);
+            document.getElementById('resultContent').innerHTML =
+                `<div class="error">${escapeHtml(msg)}</div>`;
             return;
         }
 
         // 检查响应内容
-        const responseText = await response.text();
         if (!responseText.trim()) {
             document.getElementById('resultLoading').style.display = 'none';
             document.getElementById('resultContent').innerHTML = `<div class="error">服务器返回空响应，请稍后重试</div>`;
@@ -419,7 +488,8 @@ async function sendGenerate() {
 
         if (data.error) {
             document.getElementById('resultLoading').style.display = 'none';
-            document.getElementById('resultContent').innerHTML = `<div class="error">生成失败: ${data.error}</div>`;
+            document.getElementById('resultContent').innerHTML =
+                `<div class="error">生成失败：${escapeHtml(localizeApiErrorMessage(response.status, data.error))}</div>`;
             if (data.debug) console.log('Debug:', data.debug);
             return;
         }
@@ -444,7 +514,7 @@ async function sendGenerate() {
         } else if (error.message.includes('Failed to fetch') || error.message.includes('net::ERR')) {
             errorMsg = '网络连接被重置，已自动重试多次，请重试';
         }
-        document.getElementById('resultContent').innerHTML = `<div class="error">请求失败: ${errorMsg}</div>`;
+        document.getElementById('resultContent').innerHTML = `<div class="error">请求失败：${escapeHtml(errorMsg)}</div>`;
         console.error('Request error:', error);
     } finally {
         btn.disabled = false;
@@ -467,15 +537,14 @@ function viewImage(url) {
     window.open(ensureHttps(url), '_blank');
 }
 
-// 下载图片
-function downloadImage(url) {
+// 下载图片（代理下载失败时会弹出可读错误说明）
+async function downloadImage(url) {
     console.log('下载图片:', url);
     if (!url) {
         alert('没有可下载的图片');
         return;
     }
 
-    // 如果是 data URL（base64），直接下载
     if (url.startsWith('data:')) {
         const link = document.createElement('a');
         link.href = url;
@@ -486,33 +555,31 @@ function downloadImage(url) {
         return;
     }
 
-    // 通过后端代理下载（处理跨域问题）
     const downloadUrl = `/api/download?url=${encodeURIComponent(url)}`;
     console.log('下载链接:', downloadUrl);
 
-    // 使用 fetch 下载并转换为 blob，然后触发下载
-    fetch(downloadUrl)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error('下载失败: ' + response.status);
-            }
-            return response.blob();
-        })
-        .then(blob => {
-            const blobUrl = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = blobUrl;
-            link.download = `ai-image-${Date.now()}.jpg`;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(blobUrl);
-        })
-        .catch(error => {
-            console.error('下载失败:', error);
-            // 降级：尝试直接打开链接
+    try {
+        const response = await fetch(downloadUrl);
+        if (!response.ok) {
+            const text = await response.text();
+            alert(describeHttpFailure(response.status, text));
+            return;
+        }
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = `ai-image-${Date.now()}.jpg`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+        console.error('下载失败:', error);
+        try {
             window.open(downloadUrl, '_blank');
-        });
+        } catch (_) {}
+    }
 }
 
 // 历史记录
@@ -722,16 +789,15 @@ async function startTask(taskIndex) {
             body: JSON.stringify(requestBody)
         });
 
-        // 检查响应状态
+        const responseText = await response.text();
+
         if (!response.ok) {
             task.status = 'failed';
             updateTaskUI(taskIndex);
-            alert(`任务${taskIndex + 1}请求失败: HTTP ${response.status}`);
+            alert(`任务${taskIndex + 1}：${describeHttpFailure(response.status, responseText)}`);
             return;
         }
 
-        // 检查响应内容
-        const responseText = await response.text();
         if (!responseText.trim()) {
             task.status = 'failed';
             updateTaskUI(taskIndex);
@@ -753,7 +819,7 @@ async function startTask(taskIndex) {
         if (data.error) {
             task.status = 'failed';
             updateTaskUI(taskIndex);
-            alert(`任务${taskIndex + 1}生成失败: ${data.error}`);
+            alert(`任务${taskIndex + 1}生成失败：${localizeApiErrorMessage(response.status, data.error)}`);
             return;
         }
 

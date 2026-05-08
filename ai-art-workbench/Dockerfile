@@ -15,6 +15,6 @@ RUN pip install --no-cache-dir -i https://pypi.python.org/simple -r requirements
 COPY app.py .
 COPY static/ ./static/
 
-EXPOSE 5000
+EXPOSE 80
 
 CMD ["python", "app.py"]

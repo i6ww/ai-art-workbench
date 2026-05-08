@@ -3,8 +3,8 @@
 # 配置
 $IMAGE_NAME = "ai-art-workbench"
 $CONTAINER_NAME = "ai-art-workbench"
-$HOST_PORT = 8080
-$CONTAINER_PORT = 5000
+$HOST_PORT = 80
+$CONTAINER_PORT = 80
 
 Write-Host "=== AI Art Workbench 部署脚本 ===" -ForegroundColor Cyan
 Write-Host "镜像: $IMAGE_NAME"

@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, Response
+import json
 import requests
 import re
 import time
@@ -8,6 +9,7 @@ from urllib.parse import urlparse
 
 import os
 import logging
+from typing import Optional
 
 from werkzeug.exceptions import HTTPException
 
@@ -19,14 +21,15 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'), static_url_path='/')
 app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
 
-BASE_URL = os.environ.get("API_BASE_URL", "https://www.371181668.xyz").rstrip("/")
+BASE_URL = os.environ.get("API_BASE_URL", "https://371181668.xyz").rstrip("/")
+
+LISTEN_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "80")))
 
 
 def _parse_image_url_rewrites():
-    raw = os.environ.get(
-        "IMAGE_URL_REWRITES",
-        "http://43.165.172.5:6001|https://adobe.371181668.xyz",
-    )
+    # 默认不重写；仅当上游偶发返回旧内网/HTTP 图片前缀时再设置 IMAGE_URL_REWRITES，例如：
+    # http://43.165.172.5:6001|https://adobe.371181668.xyz
+    raw = os.environ.get("IMAGE_URL_REWRITES", "")
     rules = []
     for part in raw.split(","):
         part = part.strip()
@@ -47,7 +50,7 @@ DOWNLOAD_ALLOWED_HOSTS = frozenset(
     h.strip().lower()
     for h in os.environ.get(
         "DOWNLOAD_ALLOWED_HOSTS",
-        "www.371181668.xyz,adobe.371181668.xyz,371181668.xyz",
+        "www.371181668.xyz,adobe.371181668.xyz,adobe2.371181668.xyz,371181668.xyz",
     ).split(",")
     if h.strip()
 )
@@ -55,6 +58,9 @@ DOWNLOAD_ALLOWED_HOSTS = frozenset(
 MAX_DOWNLOAD_BYTES = int(os.environ.get("MAX_DOWNLOAD_BYTES", str(30 * 1024 * 1024)))
 
 http_session = requests.Session()
+http_session.headers.update(
+    {"User-Agent": "Mozilla/5.0 (compatible; AIWorkbench/1.0)"}
+)
 
 
 def _rewrite_generated_image_urls(urls):
@@ -83,6 +89,47 @@ def _estimate_image_payload_chars(data):
     return n
 
 
+def _extract_upstream_error_text(response_text: str) -> str:
+    """Try to pull a human-readable message from upstream JSON or plain text."""
+    text = (response_text or "").strip()
+    if not text:
+        return ""
+    try:
+        j = json.loads(text)
+        err = j.get("error")
+        if isinstance(err, dict):
+            return (err.get("message") or err.get("msg") or "").strip()
+        if isinstance(err, str):
+            return err.strip()
+        m = j.get("message")
+        if isinstance(m, str):
+            return m.strip()
+    except Exception:
+        pass
+    return text[:800]
+
+
+def _upstream_user_message(status_code: int, response_text: str) -> Optional[str]:
+    """Map known upstream errors to stable Chinese copy for end users."""
+    inner = _extract_upstream_error_text(response_text)
+    blob = f"{inner} {response_text or ''}".lower()
+    if status_code == 400:
+        if "image too large" in blob or "image_too_large" in blob:
+            return (
+                "参考图体积过大：上游限制单张不超过 10MB，请压缩、裁剪或降低分辨率后再试；"
+                "多张参考图时可减少张数。"
+            )
+        if "too large" in blob and "mb" in blob and ("max" in blob or "10" in blob):
+            return (
+                "图片或请求体过大：请将单张参考图控制在约 10MB 以内，或减少参考图数量后再试。"
+            )
+        if "payload too large" in blob or "request entity too large" in blob:
+            return "请求体过大：请压缩参考图或减少图片数量后再试。"
+    if status_code == 413:
+        return "上传内容过大：请压缩图片或减少参考图数量后再试。"
+    return None
+
+
 def _validate_download_url(url):
     try:
         parsed = urlparse(url)
@@ -108,18 +155,14 @@ def _validate_download_url(url):
         return False, "无法解析主机名"
     return True, None
 
-# 模型列表
+# 模型列表（与上游 GET /v1/models 对齐；可用 _fetch_models_from_api.py --patch-app 刷新）
 MODELS = {
     "1K": [
-        # firefly-gpt-image-2 系列
-        "firefly-gpt-image-2-16x9",
-        "firefly-gpt-image-2-1x1",
-        "firefly-gpt-image-2-2x3",
-        "firefly-gpt-image-2-3x2",
-        # nano-banana 系列
         "firefly-nano-banana-1k-16x9",
         "firefly-nano-banana-1k-1x1",
         "firefly-nano-banana-1k-21x9",
+        "firefly-nano-banana-1k-2x3",
+        "firefly-nano-banana-1k-3x2",
         "firefly-nano-banana-1k-3x4",
         "firefly-nano-banana-1k-4x3",
         "firefly-nano-banana-1k-4x5",
@@ -128,6 +171,8 @@ MODELS = {
         "firefly-nano-banana-pro-1k-16x9",
         "firefly-nano-banana-pro-1k-1x1",
         "firefly-nano-banana-pro-1k-21x9",
+        "firefly-nano-banana-pro-1k-2x3",
+        "firefly-nano-banana-pro-1k-3x2",
         "firefly-nano-banana-pro-1k-3x4",
         "firefly-nano-banana-pro-1k-4x3",
         "firefly-nano-banana-pro-1k-4x5",
@@ -141,6 +186,7 @@ MODELS = {
         "firefly-nano-banana2-1k-2x3",
         "firefly-nano-banana2-1k-3x2",
         "firefly-nano-banana2-1k-3x4",
+        "firefly-nano-banana2-1k-4x1",
         "firefly-nano-banana2-1k-4x3",
         "firefly-nano-banana2-1k-4x5",
         "firefly-nano-banana2-1k-5x4",
@@ -151,6 +197,8 @@ MODELS = {
         "firefly-nano-banana-2k-16x9",
         "firefly-nano-banana-2k-1x1",
         "firefly-nano-banana-2k-21x9",
+        "firefly-nano-banana-2k-2x3",
+        "firefly-nano-banana-2k-3x2",
         "firefly-nano-banana-2k-3x4",
         "firefly-nano-banana-2k-4x3",
         "firefly-nano-banana-2k-4x5",
@@ -159,6 +207,8 @@ MODELS = {
         "firefly-nano-banana-pro-2k-16x9",
         "firefly-nano-banana-pro-2k-1x1",
         "firefly-nano-banana-pro-2k-21x9",
+        "firefly-nano-banana-pro-2k-2x3",
+        "firefly-nano-banana-pro-2k-3x2",
         "firefly-nano-banana-pro-2k-3x4",
         "firefly-nano-banana-pro-2k-4x3",
         "firefly-nano-banana-pro-2k-4x5",
@@ -172,6 +222,7 @@ MODELS = {
         "firefly-nano-banana2-2k-2x3",
         "firefly-nano-banana2-2k-3x2",
         "firefly-nano-banana2-2k-3x4",
+        "firefly-nano-banana2-2k-4x1",
         "firefly-nano-banana2-2k-4x3",
         "firefly-nano-banana2-2k-4x5",
         "firefly-nano-banana2-2k-5x4",
@@ -182,6 +233,8 @@ MODELS = {
         "firefly-nano-banana-4k-16x9",
         "firefly-nano-banana-4k-1x1",
         "firefly-nano-banana-4k-21x9",
+        "firefly-nano-banana-4k-2x3",
+        "firefly-nano-banana-4k-3x2",
         "firefly-nano-banana-4k-3x4",
         "firefly-nano-banana-4k-4x3",
         "firefly-nano-banana-4k-4x5",
@@ -190,6 +243,8 @@ MODELS = {
         "firefly-nano-banana-pro-4k-16x9",
         "firefly-nano-banana-pro-4k-1x1",
         "firefly-nano-banana-pro-4k-21x9",
+        "firefly-nano-banana-pro-4k-2x3",
+        "firefly-nano-banana-pro-4k-3x2",
         "firefly-nano-banana-pro-4k-3x4",
         "firefly-nano-banana-pro-4k-4x3",
         "firefly-nano-banana-pro-4k-4x5",
@@ -203,6 +258,7 @@ MODELS = {
         "firefly-nano-banana2-4k-2x3",
         "firefly-nano-banana2-4k-3x2",
         "firefly-nano-banana2-4k-3x4",
+        "firefly-nano-banana2-4k-4x1",
         "firefly-nano-banana2-4k-4x3",
         "firefly-nano-banana2-4k-4x5",
         "firefly-nano-banana2-4k-5x4",
@@ -210,43 +266,38 @@ MODELS = {
         "firefly-nano-banana2-4k-9x16",
     ],
     "GPT2": [
-        # firefly-gpt-image-2 标准比例
-        "firefly-gpt-image-2-16x9",
-        "firefly-gpt-image-2-1x1",
-        "firefly-gpt-image-2-2x3",
-        "firefly-gpt-image-2-3x2",
-        "firefly-gpt-image-2-4x3",
-        "firefly-gpt-image-2-4x5",
-        "firefly-gpt-image-2-5x4",
-        "firefly-gpt-image-2-9x16",
-        # firefly-gpt-image-2-4k 系列 (h=高质量, l=低质量, m=中等质量)
-        "firefly-gpt-image-2-4k-16x9-h",
-        "firefly-gpt-image-2-4k-16x9-m",
-        "firefly-gpt-image-2-4k-16x9-l",
-        "firefly-gpt-image-2-4k-1x1-h",
-        "firefly-gpt-image-2-4k-1x1-m",
-        "firefly-gpt-image-2-4k-1x1-l",
-        "firefly-gpt-image-2-4k-2x3-h",
-        "firefly-gpt-image-2-4k-2x3-m",
-        "firefly-gpt-image-2-4k-2x3-l",
-        "firefly-gpt-image-2-4k-3x2-h",
-        "firefly-gpt-image-2-4k-3x2-m",
-        "firefly-gpt-image-2-4k-3x2-l",
-        "firefly-gpt-image-2-4k-4x3-h",
-        "firefly-gpt-image-2-4k-4x3-m",
-        "firefly-gpt-image-2-4k-4x3-l",
-        "firefly-gpt-image-2-4k-4x5-h",
-        "firefly-gpt-image-2-4k-4x5-m",
-        "firefly-gpt-image-2-4k-4x5-l",
-        "firefly-gpt-image-2-4k-5x4-h",
-        "firefly-gpt-image-2-4k-5x4-m",
-        "firefly-gpt-image-2-4k-5x4-l",
-        "firefly-gpt-image-2-4k-9x16-h",
-        "firefly-gpt-image-2-4k-9x16-m",
-        "firefly-gpt-image-2-4k-9x16-l",
+        "firefly-gpt-image-1k-16x9",
+        "firefly-gpt-image-1k-1x1",
+        "firefly-gpt-image-1k-21x9",
+        "firefly-gpt-image-1k-2x3",
+        "firefly-gpt-image-1k-3x2",
+        "firefly-gpt-image-1k-3x4",
+        "firefly-gpt-image-1k-4x3",
+        "firefly-gpt-image-1k-4x5",
+        "firefly-gpt-image-1k-5x4",
+        "firefly-gpt-image-1k-9x16",
+        "firefly-gpt-image-2k-16x9",
+        "firefly-gpt-image-2k-1x1",
+        "firefly-gpt-image-2k-21x9",
+        "firefly-gpt-image-2k-2x3",
+        "firefly-gpt-image-2k-3x2",
+        "firefly-gpt-image-2k-3x4",
+        "firefly-gpt-image-2k-4x3",
+        "firefly-gpt-image-2k-4x5",
+        "firefly-gpt-image-2k-5x4",
+        "firefly-gpt-image-2k-9x16",
+        "firefly-gpt-image-4k-16x9",
+        "firefly-gpt-image-4k-1x1",
+        "firefly-gpt-image-4k-21x9",
+        "firefly-gpt-image-4k-2x3",
+        "firefly-gpt-image-4k-3x2",
+        "firefly-gpt-image-4k-3x4",
+        "firefly-gpt-image-4k-4x3",
+        "firefly-gpt-image-4k-4x5",
+        "firefly-gpt-image-4k-5x4",
+        "firefly-gpt-image-4k-9x16",
     ],
 }
-
 
 ALL_MODELS = frozenset(m for models in MODELS.values() for m in models)
 
@@ -352,10 +403,17 @@ def generate():
             return jsonify({'error': msg}), 500
 
         if response.status_code != 200:
-            error_detail = response.text[:200]
-            logger.error(f"API返回错误状态码: {response.status_code}, 响应: {error_detail}")
-            
-            # 更友好的错误提示
+            error_detail = response.text[:4000]
+            logger.error(
+                "API返回错误状态码: %s, 响应: %s",
+                response.status_code,
+                error_detail[:500],
+            )
+
+            mapped = _upstream_user_message(response.status_code, error_detail)
+            if mapped:
+                return jsonify({'error': mapped}), response.status_code
+
             if response.status_code == 401:
                 return jsonify({'error': 'API Key无效或已过期，请检查后重新输入'}), 401
             elif response.status_code == 403:
@@ -363,9 +421,12 @@ def generate():
             elif response.status_code == 429:
                 return jsonify({'error': '请求过于频繁，请稍后再试'}), 429
             else:
-                err_msg = f'HTTP {response.status_code}'
+                err_msg = (
+                    f"上游服务返回错误（HTTP {response.status_code}）。"
+                    "请检查模型、提示词与参考图大小后重试。"
+                )
                 if app.debug:
-                    err_msg += f': {error_detail}'
+                    err_msg = f"{err_msg} 调试信息：{error_detail[:500]}"
                 return jsonify({'error': err_msg}), response.status_code
 
         # 解析响应
@@ -383,7 +444,16 @@ def generate():
                 payload['debug'] = str(result)[:200]
             return jsonify(payload), 500
 
-        content = result['choices'][0]['message']['content']
+        choice0 = result['choices'][0]
+        msg_obj = choice0.get('message') if isinstance(choice0, dict) else None
+        if not isinstance(msg_obj, dict):
+            logger.error(f"API choices[0] 无 message: {str(result)[:500]}")
+            return jsonify({'error': 'API返回格式错误'}), 500
+
+        content = msg_obj.get('content')
+        if not isinstance(content, str):
+            logger.error(f"API message 无 content 或类型异常: {type(content)}")
+            return jsonify({'error': 'API返回无文本内容'}), 500
         
         # 提取图片URL（支持多种格式）
         image_urls = []
@@ -472,6 +542,7 @@ def health():
 
 
 if __name__ == '__main__':
-    # 生产环境使用 waitress 运行时忽略此配置
+    # 生产环境使用 waitress；默认监听 80（Linux 绑定 1024 以下端口通常需 root 或 setcap）
     from waitress import serve
-    serve(app, host='0.0.0.0', port=5000, threads=4)
+    logger.info("监听 0.0.0.0:%s", LISTEN_PORT)
+    serve(app, host='0.0.0.0', port=LISTEN_PORT, threads=4)

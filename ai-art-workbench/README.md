@@ -65,7 +65,11 @@ pip install -r requirements.txt
 python app.py
 ```
 
-访问 `http://localhost:8080`
+访问 **`http://localhost`**（默认监听 **80**；浏览器可省略 `:80`）。
+
+本地若无管理员权限绑定 80，可指定其它端口，例如：`set PORT=5000`（Linux/macOS 用 `export PORT=5000`）后再运行 `python app.py`。
+
+若使用下方 Docker 命令（映射宿主机 **80** → 容器 **80**），同样访问 **`http://localhost`** 或服务器的 **`http://你的IP`**。
 
 ### Docker 部署
 
@@ -74,7 +78,7 @@ python app.py
 docker build -t ai-art-workbench .
 
 # 运行容器
-docker run -d -p 8080:5000 --name ai-art-workbench ai-art-workbench
+docker run -d -p 80:80 --name ai-art-workbench ai-art-workbench
 ```
 
 ---
@@ -83,7 +87,7 @@ docker run -d -p 8080:5000 --name ai-art-workbench ai-art-workbench
 
 ### 环境要求
 - 服务器安装了 Docker
-- 开放端口 8080
+- 开放端口 **80**（或使用 `-p 8080:80` 等自定义映射）
 
 ### 部署步骤
 
@@ -100,7 +104,7 @@ cd aigongzuotai/ai-art-workbench
 
 # 4. 构建并启动
 docker build -t ai-art-workbench .
-docker run -d -p 8080:5000 --name ai-art-workbench ai-art-workbench
+docker run -d -p 80:80 --name ai-art-workbench ai-art-workbench
 ```
 
 ### Docker Compose 部署（推荐）
@@ -115,10 +119,11 @@ services:
     build: .
     container_name: ai-art-workbench
     ports:
-      - "8080:5000"
+      - "80:80"
     restart: unless-stopped
     environment:
       - FLASK_ENV=production
+      - PORT=80
 ```
 
 启动服务：
@@ -174,13 +179,30 @@ git pull origin master && docker-compose up -d --build
 
 ## 📊 支持模型
 
-| 模型系列 | 说明 | 适用场景 |
-|---------|------|---------|
-| firefly-nano-banana-pro | 高质量专业模型 | 写实风格 |
-| firefly-nano-banana2 | nano-banana-2 系列 | 艺术创作 |
-| firefly-nano-banana | nano-banana-3 系列 | 通用场景 |
+工作台可选模型与 **`GET https://371181668.xyz/v1/models`**（需 Bearer Key）返回的 ID **保持一致**。在项目目录执行：
 
-每个系列支持 1K、2K、4K 分辨率。
+```bash
+# 推荐：创建 .model_fetch_key（首行一行 sk-...，已 gitignore），然后自动写回 app.py
+python _fetch_models_from_api.py --patch-app
+```
+
+或仅用环境变量（勿把 Key 写进仓库）：
+
+```bash
+set MODEL_FETCH_KEY=你的_API_Key
+python _fetch_models_from_api.py --patch-app
+```
+
+也可去掉 `--patch-app`，把脚本打印的 `MODELS = { ... }` 手动粘贴进 `app.py`。
+
+可选环境变量：`MODEL_FETCH_URL`（默认 `https://371181668.xyz/v1/models`）。
+
+| 分辨率分组 | 说明 |
+|-----------|------|
+| **1K / 2K / 4K** | `firefly-nano-banana`、`firefly-nano-banana-pro`、`firefly-nano-banana2`，按模型 ID 中的 `-1k-` / `-2k-` / `-4k-` 归类 |
+| **GPT2** | 接口返回中含 `firefly-gpt-image`、`gpt-image-2`、`gemini-*` 且名称中带 `image` 的模型 |
+
+视频类模型（Sora / Veo 等）未接入本画图工作台 UI。
 
 ---
 
@@ -188,11 +210,11 @@ git pull origin master && docker-compose up -d --build
 
 ### Q: 端口被占用？
 ```bash
-# 查看端口占用
-netstat -tlnp | grep 8080
+# 查看端口占用（Linux）
+sudo netstat -tlnp | grep ':80 '
 
-# 改为其他端口，如 8090
-docker run -d -p 8090:5000 --name ai-art-workbench ai-art-workbench
+# 改用其它宿主机端口映射，例如宿主机 8080 -> 容器 80
+docker run -d -p 8080:80 --name ai-art-workbench ai-art-workbench
 ```
 
 ### Q: 容器启动失败？
@@ -208,7 +230,7 @@ git pull origin master
 docker build -t ai-art-workbench .
 docker stop ai-art-workbench
 docker rm ai-art-workbench
-docker run -d -p 8080:5000 --name ai-art-workbench ai-art-workbench
+docker run -d -p 80:80 --name ai-art-workbench ai-art-workbench
 ```
 
 ### Q: 如何备份？
@@ -226,33 +248,36 @@ docker load < ai-art-workbench.tar
 
 ```
 ai-art-workbench/
-├── app.py              # Flask 后端 API
-├── requirements.txt    # Python 依赖
-├── Dockerfile          # Docker 配置
-├── README.md           # 项目说明
+├── app.py                 # Flask 后端 API（内含 MODELS 清单）
+├── available_models.txt   # 旧版参考清单（请以 /v1/models 为准）
+├── _fetch_models_from_api.py   # 从上游 /v1/models 拉取并打印 MODELS 块
+├── _gen_models.py         # 根据本地 available_models.txt 生成 MODELS（离线）
+├── requirements.txt
+├── Dockerfile
+├── README.md
 └── static/
-    ├── index.html      # 前端页面
-    ├── styles.css      # 样式文件
-    └── script.js       # 前端脚本
+    ├── index.html
+    ├── styles.css
+    └── script.js
 ```
 
 ---
 
 ## 🔌 API 配置
 
-- **API 地址**: https://www.371181668.xyz
+- **API 地址**: https://371181668.xyz（与 `API_BASE_URL` 默认一致；站长入口常为 www 子域）
 - **认证方式**: Bearer API Key
 
 ### 服务端环境变量（可选）
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `https://www.371181668.xyz` |
-| `IMAGE_URL_REWRITES` | 将返回中的图片内网/旧地址替换为公网地址，格式 `旧前缀\|新前缀`，多项用英文逗号分隔 | `http://43.165.172.5:6001\|https://adobe.371181668.xyz` |
-| `DOWNLOAD_ALLOWED_HOSTS` | 代理下载接口允许的主机名（逗号分隔，防 SSRF） | `www.371181668.xyz,adobe.371181668.xyz,371181668.xyz` |
+| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `https://371181668.xyz` |
+| `IMAGE_URL_REWRITES` | 将返回中的图片内网/旧 HTTP 前缀替换为公网 HTTPS，格式 `旧前缀\|新前缀`，多项用英文逗号分隔 | （默认空；按需示例：`http://43.165.172.5:6001\|https://adobe.371181668.xyz`） |
+| `DOWNLOAD_ALLOWED_HOSTS` | 代理下载接口允许的主机名（逗号分隔，防 SSRF） | `www.371181668.xyz,adobe.371181668.xyz,adobe2.371181668.xyz,371181668.xyz` |
 | `MAX_DOWNLOAD_BYTES` | 单次代理下载最大字节数 | `31457280`（约 30MB） |
 | `MAX_IMAGE_PAYLOAD_CHARS` | 单次请求中参考图 Base64 总字符上限 | `12582912`（约 12MB 文本量） |
-| `FLASK_DEBUG` | 设为 `1` 或 `true` 时向客户端返回详细错误与 debug 字段 | 关闭 |
+| `PORT` / `SERVER_PORT` | Waitress 监听端口（二选一，`PORT` 优先） | `80` |
 
 ---
 
