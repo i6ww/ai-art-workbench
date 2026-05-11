@@ -24,6 +24,9 @@ app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true",
 BASE_URL = os.environ.get("API_BASE_URL", "https://371181668.xyz").rstrip("/")
 
 LISTEN_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "80")))
+UPSTREAM_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_TIMEOUT_SECONDS", "300"))
+USE_UPSTREAM_STREAM = os.environ.get("USE_UPSTREAM_STREAM", "1").lower() not in ("0", "false", "no")
+WAITRESS_THREADS = int(os.environ.get("WAITRESS_THREADS", "32"))
 
 
 def _parse_image_url_rewrites():
@@ -127,7 +130,121 @@ def _upstream_user_message(status_code: int, response_text: str) -> Optional[str
             return "请求体过大：请压缩参考图或减少图片数量后再试。"
     if status_code == 413:
         return "上传内容过大：请压缩图片或减少参考图数量后再试。"
+    if status_code in (504, 521, 522, 524):
+        return (
+            f"上游生成服务超时或暂时不可用（HTTP {status_code}）。"
+            "图片可能仍在后台生成，请稍后重试；若频繁出现请联系管理员检查上游服务。"
+        )
     return None
+
+
+def _chat_content_from_result(result):
+    if 'choices' not in result or not result['choices']:
+        logger.error(f"API返回格式错误: {str(result)[:500]}")
+        return None, 'API返回格式错误'
+
+    choice0 = result['choices'][0]
+    msg_obj = choice0.get('message') if isinstance(choice0, dict) else None
+    if not isinstance(msg_obj, dict):
+        logger.error(f"API choices[0] 无 message: {str(result)[:500]}")
+        return None, 'API返回格式错误'
+
+    content = msg_obj.get('content')
+    if not isinstance(content, str):
+        logger.error(f"API message 无 content 或类型异常: {type(content)}")
+        return None, 'API返回无文本内容'
+    return content, None
+
+
+def _stream_delta_content(event):
+    choices = event.get("choices")
+    if isinstance(choices, list) and choices:
+        choice = choices[0]
+        if isinstance(choice, dict):
+            delta = choice.get("delta")
+            if isinstance(delta, dict) and isinstance(delta.get("content"), str):
+                return delta["content"]
+            message = choice.get("message")
+            if isinstance(message, dict) and isinstance(message.get("content"), str):
+                return message["content"]
+            if isinstance(choice.get("text"), str):
+                return choice["text"]
+    if isinstance(event.get("content"), str):
+        return event["content"]
+    return ""
+
+
+def _read_streaming_chat_content(response):
+    parts = []
+    last_json = None
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if not raw_line:
+            continue
+        line = raw_line.strip()
+        if line.startswith("data:"):
+            line = line[5:].strip()
+        if not line or line == "[DONE]":
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            logger.debug("忽略非 JSON 流式片段: %s", line[:120])
+            continue
+        last_json = event
+        if isinstance(event.get("error"), (str, dict)):
+            return "", _extract_upstream_error_text(json.dumps(event, ensure_ascii=False))
+        piece = _stream_delta_content(event)
+        if piece:
+            parts.append(piece)
+
+    content = "".join(parts)
+    if content:
+        return content, None
+    if isinstance(last_json, dict):
+        content, err = _chat_content_from_result(last_json)
+        if content:
+            return content, None
+        return "", err
+    return "", "上游没有返回生成内容"
+
+
+def _extract_image_urls(content):
+    image_urls = []
+    image_urls.extend(re.findall(r'!\[.*?\]\((.*?)\)', content))
+    image_urls.extend(re.findall(r'(https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp))', content, re.I))
+    for match in re.findall(r'https?://[^\s"\')\]]+', content):
+        if any(ext in match.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', 'file', 'img', 'generated']):
+            if match not in image_urls:
+                image_urls.append(match)
+    return image_urls
+
+
+def _should_retry_without_stream(status_code: int, response_text: str) -> bool:
+    blob = (response_text or "").lower()
+    stream_words = ("stream", "streaming", "流式")
+    reject_words = ("not support", "unsupported", "unknown", "invalid", "unrecognized", "不支持", "无效")
+    return status_code in (400, 404, 422) and any(w in blob for w in stream_words) and any(w in blob for w in reject_words)
+
+
+def _upstream_error_response(status_code: int, error_detail: str):
+    mapped = _upstream_user_message(status_code, error_detail)
+    if mapped:
+        return jsonify({'error': mapped}), status_code
+
+    if status_code == 401:
+        return jsonify({'error': 'API Key无效或已过期，请检查后重新输入'}), 401
+    if status_code == 403:
+        return jsonify({'error': 'API Key没有访问权限'}), 403
+    if status_code == 429:
+        return jsonify({'error': '请求过于频繁，请稍后再试'}), 429
+
+    err_msg = (
+        f"上游服务返回错误（HTTP {status_code}）。"
+        "请检查模型、提示词与参考图大小后重试。"
+    )
+    if app.debug:
+        err_msg = f"{err_msg} 调试信息：{error_detail[:500]}"
+    return jsonify({'error': err_msg}), status_code
 
 
 def _validate_download_url(url):
@@ -378,22 +495,54 @@ def generate():
             # 文生图模式
             messages = [{"role": "user", "content": prompt}]
 
-        # 调用API（非流式，更容易解析）
+        payload = {
+            "model": model,
+            "messages": messages,
+        }
+        content = None
+        response = None
+
+        # 优先流式读取，避免长时间无响应时被 Cloudflare/网关判定超时。
         logger.info(f"正在调用API: {BASE_URL}/v1/chat/completions, 模型: {model}")
         try:
-            response = http_session.post(
-                f"{BASE_URL}/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": model,
-                    "messages": messages
-                },
-                timeout=120  # 2分钟超时
-            )
-            logger.info(f"API响应状态码: {response.status_code}")
+            if USE_UPSTREAM_STREAM:
+                response = http_session.post(
+                    f"{BASE_URL}/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={**payload, "stream": True},
+                    stream=True,
+                    timeout=(15, UPSTREAM_TIMEOUT_SECONDS),
+                )
+                logger.info(f"API流式响应状态码: {response.status_code}")
+                if response.status_code == 200:
+                    content, stream_err = _read_streaming_chat_content(response)
+                    if stream_err:
+                        logger.error(f"流式响应解析失败: {stream_err}")
+                        return jsonify({'error': stream_err}), 500
+                else:
+                    error_detail = response.text[:4000]
+                    logger.error(
+                        "API流式返回错误状态码: %s, 响应: %s",
+                        response.status_code,
+                        error_detail[:500],
+                    )
+                    if _should_retry_without_stream(response.status_code, error_detail):
+                        logger.warning("上游不支持流式参数，回退为普通请求")
+                        content = None
+                    else:
+                        return _upstream_error_response(response.status_code, error_detail)
+
+            if content is None:
+                response = http_session.post(
+                    f"{BASE_URL}/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json=payload,
+                    timeout=(15, UPSTREAM_TIMEOUT_SECONDS),
+                )
+                logger.info(f"API响应状态码: {response.status_code}")
         except requests.exceptions.Timeout:
             logger.error("API请求超时")
-            return jsonify({'error': '请求超时，请重试'}), 500
+            return jsonify({'error': '上游生成等待超时。图片可能仍在后台生成，请稍后重试。'}), 504
         except requests.exceptions.ConnectionError as e:
             logger.error(f"无法连接到API服务器: {e}")
             return jsonify({'error': '无法连接到API服务器'}), 500
@@ -402,73 +551,33 @@ def generate():
             msg = str(e) if app.debug else '连接失败'
             return jsonify({'error': msg}), 500
 
-        if response.status_code != 200:
+        if content is None and response.status_code != 200:
             error_detail = response.text[:4000]
             logger.error(
                 "API返回错误状态码: %s, 响应: %s",
                 response.status_code,
                 error_detail[:500],
             )
+            return _upstream_error_response(response.status_code, error_detail)
 
-            mapped = _upstream_user_message(response.status_code, error_detail)
-            if mapped:
-                return jsonify({'error': mapped}), response.status_code
+        if content is None:
+            # 解析普通 JSON 响应
+            try:
+                result = response.json()
+            except Exception as e:
+                logger.error(f"JSON解析失败: {e}, 响应文本: {response.text[:500]}")
+                msg = f'响应解析失败: {str(e)}' if app.debug else '响应解析失败'
+                return jsonify({'error': msg}), 500
 
-            if response.status_code == 401:
-                return jsonify({'error': 'API Key无效或已过期，请检查后重新输入'}), 401
-            elif response.status_code == 403:
-                return jsonify({'error': 'API Key没有访问权限'}), 403
-            elif response.status_code == 429:
-                return jsonify({'error': '请求过于频繁，请稍后再试'}), 429
-            else:
-                err_msg = (
-                    f"上游服务返回错误（HTTP {response.status_code}）。"
-                    "请检查模型、提示词与参考图大小后重试。"
-                )
+            content, parse_err = _chat_content_from_result(result)
+            if parse_err:
+                payload = {'error': parse_err}
                 if app.debug:
-                    err_msg = f"{err_msg} 调试信息：{error_detail[:500]}"
-                return jsonify({'error': err_msg}), response.status_code
-
-        # 解析响应
-        try:
-            result = response.json()
-        except Exception as e:
-            logger.error(f"JSON解析失败: {e}, 响应文本: {response.text[:500]}")
-            msg = f'响应解析失败: {str(e)}' if app.debug else '响应解析失败'
-            return jsonify({'error': msg}), 500
-        
-        if 'choices' not in result or not result['choices']:
-            logger.error(f"API返回格式错误: {str(result)[:500]}")
-            payload = {'error': 'API返回格式错误'}
-            if app.debug:
-                payload['debug'] = str(result)[:200]
-            return jsonify(payload), 500
-
-        choice0 = result['choices'][0]
-        msg_obj = choice0.get('message') if isinstance(choice0, dict) else None
-        if not isinstance(msg_obj, dict):
-            logger.error(f"API choices[0] 无 message: {str(result)[:500]}")
-            return jsonify({'error': 'API返回格式错误'}), 500
-
-        content = msg_obj.get('content')
-        if not isinstance(content, str):
-            logger.error(f"API message 无 content 或类型异常: {type(content)}")
-            return jsonify({'error': 'API返回无文本内容'}), 500
+                    payload['debug'] = str(result)[:200]
+                return jsonify(payload), 500
         
         # 提取图片URL（支持多种格式）
-        image_urls = []
-        
-        # Markdown格式: ![alt](url)
-        image_urls.extend(re.findall(r'!\[.*?\]\((.*?)\)', content))
-        
-        # 纯URL格式
-        image_urls.extend(re.findall(r'(https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp))', content, re.I))
-        
-        # 宽松URL匹配
-        for match in re.findall(r'https?://[^\s"\')\]]+', content):
-            if any(ext in match.lower() for ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', 'file', 'img', 'generated']):
-                if match not in image_urls:
-                    image_urls.append(match)
+        image_urls = _extract_image_urls(content)
 
         if image_urls:
             logger.info(f"成功提取图片数量: {len(image_urls)}")
@@ -544,5 +653,5 @@ def health():
 if __name__ == '__main__':
     # 生产环境使用 waitress；默认监听 80（Linux 绑定 1024 以下端口通常需 root 或 setcap）
     from waitress import serve
-    logger.info("监听 0.0.0.0:%s", LISTEN_PORT)
-    serve(app, host='0.0.0.0', port=LISTEN_PORT, threads=4)
+    logger.info("监听 0.0.0.0:%s，Waitress threads=%s", LISTEN_PORT, WAITRESS_THREADS)
+    serve(app, host='0.0.0.0', port=LISTEN_PORT, threads=WAITRESS_THREADS)
