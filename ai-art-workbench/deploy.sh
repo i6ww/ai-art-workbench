@@ -1,4 +1,8 @@
 # AI Art Workbench 部署脚本
+#
+# 生产环境若出现「生成一多整站打不开」，请改用 Nginx 前置：
+#   chmod +x deploy-compose.sh && ./deploy-compose.sh
+# （见项目根目录 docker-compose.yml）
 
 # 配置
 IMAGE_NAME="ai-art-workbench"

@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -i https://pypi.python.org/simple -r requirements
 COPY app.py .
 COPY static/ ./static/
 
+# 单容器直连时使用；docker-compose 中会由环境变量覆盖
+ENV WAITRESS_THREADS=48
+
 EXPOSE 80
 
 CMD ["python", "app.py"]

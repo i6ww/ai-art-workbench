@@ -21,15 +21,34 @@ import requests
 
 ROOT = Path(__file__).resolve().parent
 
-# 用户明确不展示的模型（重新拉取 /v1/models 时也会排除）
-_EXCLUDED_MODEL_IDS = frozenset(
-    {
-        "gemini-3-pro-image-preview",
-        "gemini-3.0-pro-image",
-        "gemini-3.1-flash-image",
-        "gemini-3.1-flash-image-preview",
-    }
+_GEMINI_IMAGE_MODELS = (
+    "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview",
+    "gemini-3.0-pro-image-2k",
+    "gemini-3.0-pro-image-4k",
 )
+_GEMINI_IMAGE_SIZES = ("1K", "2K", "4K")
+_GEMINI_MODEL_SIZES = {
+    "gemini-3-pro-image-preview": _GEMINI_IMAGE_SIZES,
+    "gemini-3.1-flash-image-preview": _GEMINI_IMAGE_SIZES,
+    "gemini-3.0-pro-image-2k": ("2K",),
+    "gemini-3.0-pro-image-4k": ("4K",),
+}
+
+
+def _gemini_option(base_model: str, size: str) -> str:
+    return f"{base_model}__size-{size.lower()}"
+
+
+def _gemini_options(ids: list[str]) -> list[str]:
+    available = set(ids)
+    out = []
+    for base_model in _GEMINI_IMAGE_MODELS:
+        if base_model not in available:
+            continue
+        for size in _GEMINI_MODEL_SIZES[base_model]:
+            out.append(_gemini_option(base_model, size))
+    return out
 
 
 def _load_key() -> str | None:
@@ -58,7 +77,7 @@ def fetch_ids(url: str, key: str) -> list[str]:
     return sorted({o["id"] for o in data.get("data", []) if o.get("id")})
 
 
-def partition(ids: list[str]) -> tuple[list[str], list[str], list[str], list[str]]:
+def partition(ids: list[str]) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
     def is_nano_img(m: str) -> bool:
         return (
             m.startswith("firefly-nano-banana-")
@@ -76,15 +95,14 @@ def partition(ids: list[str]) -> tuple[list[str], list[str], list[str], list[str
             return True
         if m == "gpt-image-2":
             return True
-        if m.startswith("gemini-") and "image" in m:
-            return True
         return False
 
-    gpt2 = sorted([m for m in ids if is_gpt_tab(m) and m not in _EXCLUDED_MODEL_IDS])
-    return k1, k2, k4, gpt2
+    gpt2 = sorted([m for m in ids if is_gpt_tab(m)])
+    gemini = _gemini_options(ids)
+    return k1, k2, k4, gpt2, gemini
 
 
-def format_models_py(k1: list[str], k2: list[str], k4: list[str], gpt2: list[str]) -> str:
+def format_models_py(k1: list[str], k2: list[str], k4: list[str], gpt2: list[str], gemini: list[str]) -> str:
     lines: list[str] = []
     lines.append("# 模型列表（与上游 GET /v1/models 对齐；可用 _fetch_models_from_api.py --patch-app 刷新）")
     lines.append("MODELS = {")
@@ -99,6 +117,7 @@ def format_models_py(k1: list[str], k2: list[str], k4: list[str], gpt2: list[str
     emit("2K", k2)
     emit("4K", k4)
     emit("GPT2", gpt2)
+    emit("Gemini", gemini)
     lines.append("}")
     return "\n".join(lines) + "\n"
 
@@ -132,11 +151,15 @@ def main() -> None:
         sys.exit(1)
 
     ids = fetch_ids(url, key)
-    k1, k2, k4, gpt2 = partition(ids)
-    block = format_models_py(k1, k2, k4, gpt2)
+    k1, k2, k4, gpt2, gemini = partition(ids)
+    block = format_models_py(k1, k2, k4, gpt2, gemini)
 
-    total = len(k1) + len(k2) + len(k4) + len(gpt2)
-    print(f"# fetched total ids={len(ids)} MODELS entries={total} (1K={len(k1)} 2K={len(k2)} 4K={len(k4)} GPT2={len(gpt2)})", file=sys.stderr)
+    total = len(k1) + len(k2) + len(k4) + len(gpt2) + len(gemini)
+    print(
+        f"# fetched total ids={len(ids)} MODELS entries={total} "
+        f"(1K={len(k1)} 2K={len(k2)} 4K={len(k4)} GPT2={len(gpt2)} Gemini={len(gemini)})",
+        file=sys.stderr,
+    )
 
     if args.patch_app:
         patch_app(block)

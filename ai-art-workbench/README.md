@@ -200,7 +200,8 @@ python _fetch_models_from_api.py --patch-app
 | 分辨率分组 | 说明 |
 |-----------|------|
 | **1K / 2K / 4K** | `firefly-nano-banana`、`firefly-nano-banana-pro`、`firefly-nano-banana2`，按模型 ID 中的 `-1k-` / `-2k-` / `-4k-` 归类 |
-| **GPT2** | 接口返回中含 `firefly-gpt-image`、`gpt-image-2`、`gemini-*` 且名称中带 `image` 的模型 |
+| **GPT2** | 接口返回中含 `firefly-gpt-image`、`gpt-image-2` 的模型 |
+| **Gemini** | `gemini-3-pro-image-preview`、`gemini-3.1-flash-image-preview` 可选 `1K/2K/4K`；`gemini-3.0-pro-image-2k` 固定 `2K`，`gemini-3.0-pro-image-4k` 固定 `4K`；不设置比例，使用模型默认比例 |
 
 视频类模型（Sora / Veo 等）未接入本画图工作台 UI。
 

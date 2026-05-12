@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify, Response
 import json
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import re
 import time
 import ipaddress
@@ -27,6 +29,15 @@ LISTEN_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "80")))
 UPSTREAM_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_TIMEOUT_SECONDS", "300"))
 USE_UPSTREAM_STREAM = os.environ.get("USE_UPSTREAM_STREAM", "1").lower() not in ("0", "false", "no")
 WAITRESS_THREADS = int(os.environ.get("WAITRESS_THREADS", "32"))
+GEMINI_DEFAULT_IMAGE_SIZE = os.environ.get("GEMINI_DEFAULT_IMAGE_SIZE", "1K").upper()
+GEMINI_MODEL_VARIANT_SEPARATOR = "__"
+GEMINI_IMAGE_SIZES = ("1K", "2K", "4K")
+GEMINI_MODEL_BASE_SIZES = {
+    "gemini-3-pro-image-preview": GEMINI_IMAGE_SIZES,
+    "gemini-3.1-flash-image-preview": GEMINI_IMAGE_SIZES,
+    "gemini-3.0-pro-image-2k": ("2K",),
+    "gemini-3.0-pro-image-4k": ("4K",),
+}
 
 
 def _parse_image_url_rewrites():
@@ -59,11 +70,20 @@ DOWNLOAD_ALLOWED_HOSTS = frozenset(
 )
 
 MAX_DOWNLOAD_BYTES = int(os.environ.get("MAX_DOWNLOAD_BYTES", str(30 * 1024 * 1024)))
+HTTP_POOL_CONNECTIONS = int(os.environ.get("HTTP_POOL_CONNECTIONS", "32"))
+HTTP_POOL_MAXSIZE = int(os.environ.get("HTTP_POOL_MAXSIZE", "128"))
 
 http_session = requests.Session()
 http_session.headers.update(
     {"User-Agent": "Mozilla/5.0 (compatible; AIWorkbench/1.0)"}
 )
+_adapter = HTTPAdapter(
+    pool_connections=HTTP_POOL_CONNECTIONS,
+    pool_maxsize=HTTP_POOL_MAXSIZE,
+    max_retries=Retry(total=0, connect=0, read=0, redirect=0),
+)
+http_session.mount("https://", _adapter)
+http_session.mount("http://", _adapter)
 
 
 def _rewrite_generated_image_urls(urls):
@@ -217,6 +237,84 @@ def _extract_image_urls(content):
             if match not in image_urls:
                 image_urls.append(match)
     return image_urls
+
+
+def _is_gemini_image_model(model: str) -> bool:
+    return _gemini_upstream_model(model).startswith("gemini-") and "image" in _gemini_upstream_model(model)
+
+
+def _gemini_upstream_model(model: str) -> str:
+    return (model or "").split(GEMINI_MODEL_VARIANT_SEPARATOR, 1)[0]
+
+
+def _gemini_image_size(model: str) -> str:
+    match = re.search(r'__size-(1k|2k|4k)(?:__|$)', model, re.I)
+    if match:
+        return match.group(1).upper()
+    match = re.search(r'-(1k|2k|4k)(?:-|$)', model, re.I)
+    if match:
+        return match.group(1).upper()
+    return GEMINI_DEFAULT_IMAGE_SIZE
+
+
+def _gemini_generation_config(model: str) -> dict:
+    return {
+        "responseModalities": ["IMAGE"],
+        "imageConfig": {
+            "imageSize": _gemini_image_size(model),
+        },
+    }
+
+
+def _gemini_prompt_with_constraints(prompt: str, model: str) -> str:
+    image_size = _gemini_image_size(model)
+    return (
+        f"{prompt}\n\n"
+        f"Output requirements: generate the final image at image size {image_size}. "
+        "Use the model default aspect ratio."
+    )
+
+
+def _gemini_model_option(base_model: str, size: str) -> str:
+    return f"{base_model}{GEMINI_MODEL_VARIANT_SEPARATOR}size-{size.lower()}"
+
+
+def _make_gemini_model_options() -> list[str]:
+    out = []
+    for base_model, sizes in GEMINI_MODEL_BASE_SIZES.items():
+        for size in sizes:
+            out.append(_gemini_model_option(base_model, size))
+    return out
+
+
+def _extract_inline_image_data(result):
+    images = []
+    candidates = result.get("candidates")
+    if not isinstance(candidates, list):
+        return images
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        content = candidate.get("content")
+        parts = content.get("parts") if isinstance(content, dict) else None
+        if not isinstance(parts, list):
+            continue
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            inline_data = part.get("inlineData") or part.get("inline_data")
+            if not isinstance(inline_data, dict):
+                continue
+            data = inline_data.get("data")
+            if not isinstance(data, str) or not data.strip():
+                continue
+            if data.startswith("data:"):
+                images.append(data)
+            else:
+                mime_type = inline_data.get("mimeType") or inline_data.get("mime_type") or "image/png"
+                images.append(f"data:{mime_type};base64,{data}")
+    return images
 
 
 def _should_retry_without_stream(status_code: int, response_text: str) -> bool:
@@ -414,6 +512,7 @@ MODELS = {
         "firefly-gpt-image-4k-5x4",
         "firefly-gpt-image-4k-9x16",
     ],
+    "Gemini": _make_gemini_model_options(),
 }
 
 ALL_MODELS = frozenset(m for models in MODELS.values() for m in models)
@@ -468,44 +567,66 @@ def generate():
         return jsonify({'error': '无效的模型'}), 400
 
     try:
+        is_gemini_image_model = _is_gemini_image_model(model)
+        gemini_prompt = _gemini_prompt_with_constraints(prompt, model) if is_gemini_image_model else prompt
+
         # 构建消息内容
         if image_data or images_data:
             # 图生图模式
-            content = [{"type": "text", "text": prompt}]
+            content = [] if is_gemini_image_model else [{"type": "text", "text": prompt}]
             
             # 处理单张或多张图片
             if images_data:
                 # 多图模式
                 for img in images_data:
-                    if ',' in img:
+                    if is_gemini_image_model and img.startswith("data:"):
+                        image_b64 = img
+                    elif ',' in img:
                         image_b64 = img.split(',')[1]
                     else:
                         image_b64 = img
-                    content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}})
+                    image_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
+                    content.append({"type": "image_url", "image_url": {"url": image_url}})
             elif image_data:
                 # 单图模式
-                if ',' in image_data:
+                if is_gemini_image_model and image_data.startswith("data:"):
+                    image_b64 = image_data
+                elif ',' in image_data:
                     image_b64 = image_data.split(',')[1]
                 else:
                     image_b64 = image_data
-                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}})
+                image_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
+                content.append({"type": "image_url", "image_url": {"url": image_url}})
+
+            if is_gemini_image_model:
+                content.append({"type": "text", "text": gemini_prompt})
             
             messages = [{"role": "user", "content": content}]
         else:
             # 文生图模式
-            messages = [{"role": "user", "content": prompt}]
+            if is_gemini_image_model:
+                messages = [{"role": "user", "content": [{"type": "text", "text": gemini_prompt}]}]
+            else:
+                messages = [{"role": "user", "content": prompt}]
 
         payload = {
-            "model": model,
+            "model": _gemini_upstream_model(model) if is_gemini_image_model else model,
             "messages": messages,
         }
+        if is_gemini_image_model:
+            payload["generationConfig"] = _gemini_generation_config(model)
+            logger.info(
+                "Gemini生成配置: upstream_model=%s, imageSize=%s, aspectRatio=default",
+                payload["model"],
+                payload["generationConfig"]["imageConfig"]["imageSize"],
+            )
         content = None
         response = None
 
         # 优先流式读取，避免长时间无响应时被 Cloudflare/网关判定超时。
         logger.info(f"正在调用API: {BASE_URL}/v1/chat/completions, 模型: {model}")
         try:
-            if USE_UPSTREAM_STREAM:
+            if USE_UPSTREAM_STREAM and not is_gemini_image_model:
                 response = http_session.post(
                     f"{BASE_URL}/v1/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
@@ -568,6 +689,15 @@ def generate():
                 logger.error(f"JSON解析失败: {e}, 响应文本: {response.text[:500]}")
                 msg = f'响应解析失败: {str(e)}' if app.debug else '响应解析失败'
                 return jsonify({'error': msg}), 500
+
+            inline_images = _extract_inline_image_data(result)
+            if inline_images:
+                logger.info(f"成功提取 Gemini inline 图片数量: {len(inline_images)}")
+                return jsonify({
+                    'image': inline_images[0],
+                    'allImages': inline_images,
+                    'content': '[Gemini inline image]',
+                })
 
             content, parse_err = _chat_content_from_result(result)
             if parse_err:

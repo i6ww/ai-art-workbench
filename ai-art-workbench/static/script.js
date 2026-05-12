@@ -159,7 +159,10 @@ function updateModels() {
 
 // 获取模型版本
 function getModelVersion(model) {
-    if (model.startsWith('gemini-')) return 'Google Gemini 图像';
+    if (model.startsWith('gemini-3-pro-image-preview')) return 'Google Gemini 3 Pro Image Preview';
+    if (model.startsWith('gemini-3.1-flash-image-preview')) return 'Google Gemini 3.1 Flash Image Preview';
+    if (model.startsWith('gemini-3.0-pro-image-2k')) return 'Google Gemini 3.0 Pro Image 2K';
+    if (model.startsWith('gemini-3.0-pro-image-4k')) return 'Google Gemini 3.0 Pro Image 4K';
     if (model === 'gpt-image-2') return 'OpenAI gpt-image-2';
     if (model.includes('firefly-gpt-image')) return 'firefly-gpt-image-2';
     if (model.includes('nano-banana-pro')) return 'firefly-nano-banana-pro';
@@ -174,7 +177,21 @@ function getRatioDisplay(model) {
         return '默认 (4K)';
     }
     if (model.startsWith('gemini-')) {
+        const sizeMatch = model.match(/__size-(1k|2k|4k)/i);
+        if (sizeMatch) {
+            const size = sizeMatch[1].toUpperCase();
+            const baseModel = model.split('__')[0];
+            const modelLabelMap = {
+                'gemini-3-pro-image-preview': 'Gemini 3 Pro',
+                'gemini-3.1-flash-image-preview': 'Gemini 3.1 Flash',
+                'gemini-3.0-pro-image-2k': 'Gemini 3.0 Pro',
+                'gemini-3.0-pro-image-4k': 'Gemini 3.0 Pro',
+            };
+            const modelLabel = modelLabelMap[baseModel] || 'Gemini';
+            return `${modelLabel} · ${size} · 默认比例`;
+        }
         return model
+            .replace(/__size-\w+$/, '')
             .replace(/-preview-c$/, '')
             .replace(/^gemini-/, '')
             .replace(/-/g, ' ');
@@ -771,9 +788,10 @@ async function startTask(taskIndex) {
     updateTaskUI(taskIndex);
 
     try {
+        const selectedModel = document.getElementById('batchModelSelect').value;
         const requestBody = {
             apiKey: apiKey,
-            model: document.getElementById('batchModelSelect').value,
+            model: selectedModel,
             prompt: task.prompt
         };
 
