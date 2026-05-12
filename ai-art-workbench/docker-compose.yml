@@ -10,6 +10,10 @@ services:
       PORT: "8080"
       # 仅处理 /api，可适当提高并发；内存紧张时可改为 32～48
       WAITRESS_THREADS: "64"
+      # 异步任务 worker 并发，建议 <= WAITRESS_THREADS
+      GENERATE_WORKERS: "24"
+      # 排队上限，超过即快速返回 429，避免服务拖死
+      MAX_PENDING_JOBS: "300"
     expose:
       - "8080"
     # 不映射端口到宿主机，只给内部 Nginx 访问

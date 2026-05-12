@@ -12,6 +12,9 @@ from urllib.parse import urlparse
 import os
 import logging
 from typing import Optional
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from werkzeug.exceptions import HTTPException
 
@@ -29,6 +32,10 @@ LISTEN_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "80")))
 UPSTREAM_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_TIMEOUT_SECONDS", "300"))
 USE_UPSTREAM_STREAM = os.environ.get("USE_UPSTREAM_STREAM", "1").lower() not in ("0", "false", "no")
 WAITRESS_THREADS = int(os.environ.get("WAITRESS_THREADS", "32"))
+GENERATE_WORKERS = int(os.environ.get("GENERATE_WORKERS", "16"))
+MAX_PENDING_JOBS = int(os.environ.get("MAX_PENDING_JOBS", "300"))
+JOB_TTL_SECONDS = int(os.environ.get("JOB_TTL_SECONDS", "3600"))
+MAX_JOB_STORE = int(os.environ.get("MAX_JOB_STORE", "1000"))
 GEMINI_DEFAULT_IMAGE_SIZE = os.environ.get("GEMINI_DEFAULT_IMAGE_SIZE", "1K").upper()
 GEMINI_MODEL_VARIANT_SEPARATOR = "__"
 GEMINI_IMAGE_SIZES = ("1K", "2K", "4K")
@@ -517,67 +524,61 @@ MODELS = {
 
 ALL_MODELS = frozenset(m for models in MODELS.values() for m in models)
 
-
-@app.route('/favicon.ico')
-def favicon():
-    return '', 204  # 返回空响应
-
-@app.route('/')
-def index():
-    return app.send_static_file('index.html')
+job_executor = ThreadPoolExecutor(max_workers=GENERATE_WORKERS)
+job_lock = threading.Lock()
+job_store = {}
 
 
-@app.route('/api/models')
-def get_models():
-    return jsonify(MODELS)
+def _prune_jobs_unlocked(now_ts: float):
+    expired = [
+        job_id
+        for job_id, info in job_store.items()
+        if now_ts - info.get("created_at", now_ts) > JOB_TTL_SECONDS
+    ]
+    for job_id in expired:
+        job_store.pop(job_id, None)
+    if len(job_store) <= MAX_JOB_STORE:
+        return
+    ordered = sorted(
+        job_store.items(),
+        key=lambda kv: kv[1].get("created_at", 0),
+    )
+    for job_id, _ in ordered[: max(0, len(job_store) - MAX_JOB_STORE)]:
+        job_store.pop(job_id, None)
 
 
-@app.route('/api/generate', methods=['POST'])
-def generate():
-    logger.info(f"收到生成请求")
-    
-    # 检查 Content-Type
-    if not request.is_json:
-        logger.error(f"Content-Type 不是 application/json")
-        return jsonify({'error': 'Content-Type 必须为 application/json'}), 400
-    
-    data = request.json
-    if data is None:
-        return jsonify({'error': '请求体必须为 JSON'}), 400
+def _active_job_count_unlocked():
+    return sum(1 for info in job_store.values() if info.get("status") in ("queued", "running"))
 
+
+def _process_generate_request(data):
     api_key = data.get('apiKey')
     model = data.get('model')
     prompt = data.get('prompt')
-    image_data = data.get('image')  # 单张图片
-    images_data = data.get('images')  # 多张图片
+    image_data = data.get('image')
+    images_data = data.get('images')
 
     if _estimate_image_payload_chars(data) > MAX_IMAGE_PAYLOAD_CHARS:
-        return jsonify({'error': '参考图数据过大，请压缩或减少图片数量'}), 413
-    
-    # 日志请求参数（敏感信息脱敏）
+        return None, {'error': '参考图数据过大，请压缩或减少图片数量'}, 413
+
     has_image = bool(image_data or images_data)
     logger.info(f"请求参数: model={model}, prompt长度={len(prompt) if prompt else 0}, 有图片={has_image}")
 
     if not api_key or not model or not prompt:
         logger.error(f"缺少必要参数: api_key={bool(api_key)}, model={model}, prompt={bool(prompt)}")
-        return jsonify({'error': '缺少必要参数'}), 400
+        return None, {'error': '缺少必要参数'}, 400
 
     if model not in ALL_MODELS:
         logger.error(f"无效的模型: {model}")
-        return jsonify({'error': '无效的模型'}), 400
+        return None, {'error': '无效的模型'}, 400
 
     try:
         is_gemini_image_model = _is_gemini_image_model(model)
         gemini_prompt = _gemini_prompt_with_constraints(prompt, model) if is_gemini_image_model else prompt
 
-        # 构建消息内容
         if image_data or images_data:
-            # 图生图模式
             content = [] if is_gemini_image_model else [{"type": "text", "text": prompt}]
-            
-            # 处理单张或多张图片
             if images_data:
-                # 多图模式
                 for img in images_data:
                     if is_gemini_image_model and img.startswith("data:"):
                         image_b64 = img
@@ -588,7 +589,6 @@ def generate():
                     image_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
                     content.append({"type": "image_url", "image_url": {"url": image_url}})
             elif image_data:
-                # 单图模式
                 if is_gemini_image_model and image_data.startswith("data:"):
                     image_b64 = image_data
                 elif ',' in image_data:
@@ -597,13 +597,10 @@ def generate():
                     image_b64 = image_data
                 image_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
                 content.append({"type": "image_url", "image_url": {"url": image_url}})
-
             if is_gemini_image_model:
                 content.append({"type": "text", "text": gemini_prompt})
-            
             messages = [{"role": "user", "content": content}]
         else:
-            # 文生图模式
             if is_gemini_image_model:
                 messages = [{"role": "user", "content": [{"type": "text", "text": gemini_prompt}]}]
             else:
@@ -622,8 +619,6 @@ def generate():
             )
         content = None
         response = None
-
-        # 优先流式读取，避免长时间无响应时被 Cloudflare/网关判定超时。
         logger.info(f"正在调用API: {BASE_URL}/v1/chat/completions, 模型: {model}")
         try:
             if USE_UPSTREAM_STREAM and not is_gemini_image_model:
@@ -639,7 +634,7 @@ def generate():
                     content, stream_err = _read_streaming_chat_content(response)
                     if stream_err:
                         logger.error(f"流式响应解析失败: {stream_err}")
-                        return jsonify({'error': stream_err}), 500
+                        return None, {'error': stream_err}, 500
                 else:
                     error_detail = response.text[:4000]
                     logger.error(
@@ -651,7 +646,8 @@ def generate():
                         logger.warning("上游不支持流式参数，回退为普通请求")
                         content = None
                     else:
-                        return _upstream_error_response(response.status_code, error_detail)
+                        msg = _upstream_user_message(response.status_code, error_detail) or "上游服务错误"
+                        return None, {'error': msg}, response.status_code
 
             if content is None:
                 response = http_session.post(
@@ -663,14 +659,14 @@ def generate():
                 logger.info(f"API响应状态码: {response.status_code}")
         except requests.exceptions.Timeout:
             logger.error("API请求超时")
-            return jsonify({'error': '上游生成等待超时。图片可能仍在后台生成，请稍后重试。'}), 504
+            return None, {'error': '上游生成等待超时。图片可能仍在后台生成，请稍后重试。'}, 504
         except requests.exceptions.ConnectionError as e:
             logger.error(f"无法连接到API服务器: {e}")
-            return jsonify({'error': '无法连接到API服务器'}), 500
+            return None, {'error': '无法连接到API服务器'}, 500
         except Exception as e:
             logger.error(f"连接异常: {e}")
             msg = str(e) if app.debug else '连接失败'
-            return jsonify({'error': msg}), 500
+            return None, {'error': msg}, 500
 
         if content is None and response.status_code != 200:
             error_detail = response.text[:4000]
@@ -679,51 +675,136 @@ def generate():
                 response.status_code,
                 error_detail[:500],
             )
-            return _upstream_error_response(response.status_code, error_detail)
+            msg = _upstream_user_message(response.status_code, error_detail) or "上游服务错误"
+            return None, {'error': msg}, response.status_code
 
         if content is None:
-            # 解析普通 JSON 响应
             try:
                 result = response.json()
             except Exception as e:
                 logger.error(f"JSON解析失败: {e}, 响应文本: {response.text[:500]}")
                 msg = f'响应解析失败: {str(e)}' if app.debug else '响应解析失败'
-                return jsonify({'error': msg}), 500
+                return None, {'error': msg}, 500
 
             inline_images = _extract_inline_image_data(result)
             if inline_images:
                 logger.info(f"成功提取 Gemini inline 图片数量: {len(inline_images)}")
-                return jsonify({
+                return {
                     'image': inline_images[0],
                     'allImages': inline_images,
                     'content': '[Gemini inline image]',
-                })
+                }, None, 200
 
             content, parse_err = _chat_content_from_result(result)
             if parse_err:
-                payload = {'error': parse_err}
+                err_payload = {'error': parse_err}
                 if app.debug:
-                    payload['debug'] = str(result)[:200]
-                return jsonify(payload), 500
-        
-        # 提取图片URL（支持多种格式）
-        image_urls = _extract_image_urls(content)
+                    err_payload['debug'] = str(result)[:200]
+                return None, err_payload, 500
 
+        image_urls = _extract_image_urls(content)
         if image_urls:
             logger.info(f"成功提取图片数量: {len(image_urls)}")
             image_urls = _rewrite_generated_image_urls(image_urls)
-            return jsonify({'image': image_urls[0], 'allImages': image_urls, 'content': content})
-        else:
-            logger.warning(f"未找到图片，内容前500字符: {content[:500]}")
-            payload = {'error': '未找到图片'}
-            if app.debug:
-                payload['debug'] = content[:500]
-            return jsonify(payload), 500
+            return {'image': image_urls[0], 'allImages': image_urls, 'content': content}, None, 200
 
+        logger.warning(f"未找到图片，内容前500字符: {content[:500]}")
+        err_payload = {'error': '未找到图片'}
+        if app.debug:
+            err_payload['debug'] = content[:500]
+        return None, err_payload, 500
     except Exception as e:
         logger.exception("生成图片时发生错误")
         msg = str(e) if app.debug else '服务器错误'
-        return jsonify({'error': msg}), 500
+        return None, {'error': msg}, 500
+
+
+def _run_generate_job(job_id: str, data: dict):
+    with job_lock:
+        if job_id not in job_store:
+            return
+        job_store[job_id]["status"] = "running"
+        job_store[job_id]["started_at"] = time.time()
+    result, error_payload, status_code = _process_generate_request(data)
+    with job_lock:
+        if job_id not in job_store:
+            return
+        job_store[job_id]["finished_at"] = time.time()
+        if error_payload:
+            job_store[job_id]["status"] = "failed"
+            job_store[job_id]["error"] = error_payload.get("error", "生成失败")
+            job_store[job_id]["status_code"] = status_code
+            if app.debug and "debug" in error_payload:
+                job_store[job_id]["debug"] = error_payload["debug"]
+        else:
+            job_store[job_id]["status"] = "succeeded"
+            job_store[job_id]["result"] = result
+            job_store[job_id]["status_code"] = 200
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204  # 返回空响应
+
+@app.route('/')
+def index():
+    return app.send_static_file('index.html')
+
+
+@app.route('/api/models')
+def get_models():
+    return jsonify(MODELS)
+
+
+@app.route('/api/generate', methods=['POST'])
+def generate():
+    logger.info("收到生成请求")
+    if not request.is_json:
+        return jsonify({'error': 'Content-Type 必须为 application/json'}), 400
+    data = request.json
+    if data is None:
+        return jsonify({'error': '请求体必须为 JSON'}), 400
+
+    # 轻量字段校验，避免无效请求占用队列槽位
+    if not data.get("apiKey") or not data.get("model") or not data.get("prompt"):
+        return jsonify({'error': '缺少必要参数'}), 400
+    if data.get("model") not in ALL_MODELS:
+        return jsonify({'error': '无效的模型'}), 400
+    if _estimate_image_payload_chars(data) > MAX_IMAGE_PAYLOAD_CHARS:
+        return jsonify({'error': '参考图数据过大，请压缩或减少图片数量'}), 413
+
+    now_ts = time.time()
+    with job_lock:
+        _prune_jobs_unlocked(now_ts)
+        if _active_job_count_unlocked() >= MAX_PENDING_JOBS:
+            return jsonify({'error': '服务繁忙，请稍后重试'}), 429
+        job_id = uuid.uuid4().hex
+        job_store[job_id] = {
+            "id": job_id,
+            "status": "queued",
+            "created_at": now_ts,
+            "status_code": 202,
+        }
+    job_executor.submit(_run_generate_job, job_id, data)
+    return jsonify({"jobId": job_id, "status": "queued"}), 202
+
+
+@app.route('/api/jobs/<job_id>', methods=['GET'])
+def get_job_status(job_id):
+    with job_lock:
+        info = job_store.get(job_id)
+        if not info:
+            return jsonify({'error': '任务不存在或已过期'}), 404
+        status = info.get("status")
+        resp = {"jobId": job_id, "status": status}
+        if status == "succeeded":
+            resp["result"] = info.get("result")
+        elif status == "failed":
+            resp["error"] = info.get("error", "生成失败")
+            resp["statusCode"] = info.get("status_code", 500)
+            if app.debug and "debug" in info:
+                resp["debug"] = info["debug"]
+        return jsonify(resp), 200
 
 
 @app.errorhandler(Exception)

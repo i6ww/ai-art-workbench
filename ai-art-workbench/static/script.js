@@ -417,6 +417,54 @@ function describeHttpFailure(status, responseText) {
     return hints[status] || `请求未完成（HTTP ${status}）。请检查网络后重试；若多次失败请联系管理员。`;
 }
 
+async function submitGenerateJob(requestBody) {
+    const response = await fetchWithRetry('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+    });
+    const responseText = await response.text();
+    if (!response.ok) {
+        throw new Error(describeHttpFailure(response.status, responseText));
+    }
+    let data = null;
+    try {
+        data = JSON.parse(responseText);
+    } catch (_) {
+        throw new Error('任务提交成功但响应格式异常');
+    }
+    if (!data || !data.jobId) {
+        throw new Error('任务提交失败：缺少 jobId');
+    }
+    return data.jobId;
+}
+
+async function pollGenerateJob(jobId, timeout = 600000) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeout) {
+        const response = await fetchWithRetry(`/api/jobs/${encodeURIComponent(jobId)}`, {
+            method: 'GET'
+        }, 2, 30000);
+        const responseText = await response.text();
+        if (!response.ok) {
+            throw new Error(describeHttpFailure(response.status, responseText));
+        }
+        let data = {};
+        try {
+            data = JSON.parse(responseText);
+        } catch (_) {
+            throw new Error('任务查询响应格式错误');
+        }
+        if (data.status === 'succeeded') return data.result || {};
+        if (data.status === 'failed') {
+            const statusCode = data.statusCode || 500;
+            throw new Error(localizeApiErrorMessage(statusCode, data.error || '生成失败'));
+        }
+        await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    throw new Error('任务等待超时，请稍后重试');
+}
+
 // 发送生成请求
 async function sendGenerate() {
     const prompt = document.getElementById('messageInput').value.trim();
@@ -470,46 +518,10 @@ async function sendGenerate() {
             }
         }
         
-        const response = await fetchWithRetry('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
-
-        const responseText = await response.text();
-
-        if (!response.ok) {
-            document.getElementById('resultLoading').style.display = 'none';
-            const msg = describeHttpFailure(response.status, responseText);
-            document.getElementById('resultContent').innerHTML =
-                `<div class="error">${escapeHtml(msg)}</div>`;
-            return;
-        }
-
-        // 检查响应内容
-        if (!responseText.trim()) {
-            document.getElementById('resultLoading').style.display = 'none';
-            document.getElementById('resultContent').innerHTML = `<div class="error">服务器返回空响应，请稍后重试</div>`;
-            return;
-        }
-
-        let data;
-        try {
-            data = JSON.parse(responseText);
-        } catch (e) {
-            document.getElementById('resultLoading').style.display = 'none';
-            console.error('JSON解析失败:', responseText.substring(0, 200));
-            document.getElementById('resultContent').innerHTML = `<div class="error">响应格式错误，请稍后重试</div>`;
-            return;
-        }
-
-        if (data.error) {
-            document.getElementById('resultLoading').style.display = 'none';
-            document.getElementById('resultContent').innerHTML =
-                `<div class="error">生成失败：${escapeHtml(localizeApiErrorMessage(response.status, data.error))}</div>`;
-            if (data.debug) console.log('Debug:', data.debug);
-            return;
-        }
+        btn.textContent = '排队中...';
+        const jobId = await submitGenerateJob(requestBody);
+        btn.textContent = '生成中...';
+        const data = await pollGenerateJob(jobId);
 
         if (data.image) {
             const httpsUrl = ensureHttps(data.image);
@@ -525,10 +537,10 @@ async function sendGenerate() {
 
     } catch (error) {
         document.getElementById('resultLoading').style.display = 'none';
-        let errorMsg = error.message;
+        let errorMsg = error.message || '请求失败';
         if (error.name === 'AbortError') {
             errorMsg = '请求超时(3分钟)，请检查网络后重试';
-        } else if (error.message.includes('Failed to fetch') || error.message.includes('net::ERR')) {
+        } else if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('net::ERR'))) {
             errorMsg = '网络连接被重置，已自动重试多次，请重试';
         }
         document.getElementById('resultContent').innerHTML = `<div class="error">请求失败：${escapeHtml(errorMsg)}</div>`;
@@ -801,45 +813,8 @@ async function startTask(taskIndex) {
             requestBody.images = images;
         }
 
-        const response = await fetchWithRetry('/api/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
-
-        const responseText = await response.text();
-
-        if (!response.ok) {
-            task.status = 'failed';
-            updateTaskUI(taskIndex);
-            alert(`任务${taskIndex + 1}：${describeHttpFailure(response.status, responseText)}`);
-            return;
-        }
-
-        if (!responseText.trim()) {
-            task.status = 'failed';
-            updateTaskUI(taskIndex);
-            alert(`任务${taskIndex + 1}收到空响应，服务器可能正在重启`);
-            return;
-        }
-
-        let data;
-        try {
-            data = JSON.parse(responseText);
-        } catch (e) {
-            task.status = 'failed';
-            updateTaskUI(taskIndex);
-            console.error('JSON解析失败:', responseText.substring(0, 200));
-            alert(`任务${taskIndex + 1}响应格式错误`);
-            return;
-        }
-
-        if (data.error) {
-            task.status = 'failed';
-            updateTaskUI(taskIndex);
-            alert(`任务${taskIndex + 1}生成失败：${localizeApiErrorMessage(response.status, data.error)}`);
-            return;
-        }
+        const jobId = await submitGenerateJob(requestBody);
+        const data = await pollGenerateJob(jobId);
 
         if (data.image) {
             task.result = ensureHttps(data.image);
@@ -854,7 +829,7 @@ async function startTask(taskIndex) {
         let errorMsg = '网络连接失败';
         if (error.name === 'AbortError') {
             errorMsg = '请求超时(3分钟)，请检查网络后重试';
-        } else if (error.message.includes('Failed to fetch') || error.message.includes('net::ERR')) {
+        } else if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('net::ERR'))) {
             errorMsg = '网络连接被重置，已自动重试多次，请重试';
         }
         alert(`任务${taskIndex + 1}错误: ${errorMsg}`);
