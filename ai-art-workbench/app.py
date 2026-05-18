@@ -356,10 +356,8 @@ def _extract_video_urls(content):
 def _is_video_model(model: str) -> bool:
     return (model or "").startswith((
         "firefly-sora2-",
-        "firefly-sora2-pro-",
         "firefly-veo31-",
         "firefly-kling3-",
-        "firefly-kling-o3-",
     ))
 
 
@@ -413,7 +411,7 @@ def _make_gemini_model_options() -> list[str]:
 
 def _make_video_model_options() -> list[str]:
     models = []
-    for family in ("firefly-sora2", "firefly-sora2-pro"):
+    for family in ("firefly-sora2",):
         for duration in ("4s", "8s", "12s"):
             for ratio in ("16x9", "9x16"):
                 models.append(f"{family}-{duration}-{ratio}")
@@ -428,9 +426,6 @@ def _make_video_model_options() -> list[str]:
         for ratio in ("16x9", "9x16"):
             models.append(f"firefly-kling3-{duration}-{ratio}")
 
-    for duration in ("5s", "15s"):
-        for ratio in ("16x9", "9x16"):
-            models.append(f"firefly-kling-o3-{duration}-{ratio}")
     return models
 
 

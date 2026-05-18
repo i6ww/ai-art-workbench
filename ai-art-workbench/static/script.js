@@ -180,13 +180,11 @@ function updateModels() {
 
 // 获取模型版本
 function getModelVersion(model) {
-    if (model.startsWith('firefly-sora2-pro-')) return 'Sora 2 Pro Video';
     if (model.startsWith('firefly-sora2-')) return 'Sora 2 Video';
     if (model.startsWith('firefly-veo31-ref-')) return 'Veo 3.1 Ref Video';
     if (model.startsWith('firefly-veo31-fast-')) return 'Veo 3.1 Fast Video';
     if (model.startsWith('firefly-veo31-')) return 'Veo 3.1 Video';
     if (model.startsWith('firefly-kling3-')) return 'Kling 3.0 Video';
-    if (model.startsWith('firefly-kling-o3-')) return 'Kling O3 Video';
     if (model.startsWith('gemini-3-pro-image-preview')) return 'Google Gemini 3 Pro Image Preview';
     if (model.startsWith('gemini-3.1-flash-image-preview')) return 'Google Gemini 3.1 Flash Image Preview';
     if (model.startsWith('gemini-3.0-pro-image-2k')) return 'Google Gemini 3.0 Pro Image 2K';
@@ -256,10 +254,8 @@ function getRatioDisplay(model) {
 function isVideoModel(model) {
     return !!model && (
         model.startsWith('firefly-sora2-') ||
-        model.startsWith('firefly-sora2-pro-') ||
         model.startsWith('firefly-veo31-') ||
-        model.startsWith('firefly-kling3-') ||
-        model.startsWith('firefly-kling-o3-')
+        model.startsWith('firefly-kling3-')
     );
 }
 
@@ -325,7 +321,6 @@ function maxVideoReferenceImages(model) {
     if (model.startsWith('firefly-veo31-ref-')) return 3;
     if (model.startsWith('firefly-veo31-')) return 2;
     if (model.startsWith('firefly-kling3-')) return 2;
-    if (model.startsWith('firefly-kling-o3-')) return 2;
     return 1;
 }
 

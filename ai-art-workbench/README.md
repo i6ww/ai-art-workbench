@@ -229,7 +229,7 @@ python _fetch_models_from_api.py --patch-app
 | **1K / 2K / 4K** | `firefly-nano-banana`、`firefly-nano-banana-pro`、`firefly-nano-banana2`，按模型 ID 中的 `-1k-` / `-2k-` / `-4k-` 归类 |
 | **GPT2** | 接口返回中含 `firefly-gpt-image`、`gpt-image-2` 的模型 |
 | **Gemini** | `gemini-3-pro-image-preview`、`gemini-3.1-flash-image-preview` 可选 `1K/2K/4K`；`gemini-3.0-pro-image-2k` 固定 `2K`，`gemini-3.0-pro-image-4k` 固定 `4K`；不设置比例，使用模型默认比例 |
-| **Video** | `firefly-sora2-*`、`firefly-sora2-pro-*`、`firefly-veo31-*`、`firefly-veo31-ref-*`、`firefly-veo31-fast-*`、`firefly-kling3-*`、`firefly-kling-o3-*` |
+| **Video** | `firefly-sora2-*`、`firefly-veo31-*`、`firefly-veo31-ref-*`、`firefly-veo31-fast-*`、`firefly-kling3-*` |
 
 图片模型和视频模型在 UI 中分组展示；图片批量和视频批量使用独立模块，避免误选模型类型。
 
