@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, send_from_directory
 import json
 import requests
 from requests.adapters import HTTPAdapter
@@ -76,7 +76,7 @@ DOWNLOAD_ALLOWED_HOSTS = frozenset(
     if h.strip()
 )
 
-MAX_DOWNLOAD_BYTES = int(os.environ.get("MAX_DOWNLOAD_BYTES", str(30 * 1024 * 1024)))
+MAX_DOWNLOAD_BYTES = int(os.environ.get("MAX_DOWNLOAD_BYTES", str(300 * 1024 * 1024)))
 HTTP_POOL_CONNECTIONS = int(os.environ.get("HTTP_POOL_CONNECTIONS", "32"))
 HTTP_POOL_MAXSIZE = int(os.environ.get("HTTP_POOL_MAXSIZE", "128"))
 
@@ -139,6 +139,36 @@ def _extract_upstream_error_text(response_text: str) -> str:
     return text[:800]
 
 
+def _error_payload(
+    message: str,
+    code: str,
+    *,
+    status_code: int = 500,
+    hint: Optional[str] = None,
+    stage: str = "server",
+    retryable: bool = False,
+    upstream_status: Optional[int] = None,
+    upstream_message: Optional[str] = None,
+    debug: Optional[str] = None,
+) -> dict:
+    payload = {
+        "error": message,
+        "code": code,
+        "statusCode": status_code,
+        "stage": stage,
+        "retryable": retryable,
+    }
+    if hint:
+        payload["hint"] = hint
+    if upstream_status is not None:
+        payload["upstreamStatus"] = upstream_status
+    if upstream_message:
+        payload["upstreamMessage"] = upstream_message[:800]
+    if debug and app.debug:
+        payload["debug"] = debug[:1000]
+    return payload
+
+
 def _upstream_user_message(status_code: int, response_text: str) -> Optional[str]:
     """Map known upstream errors to stable Chinese copy for end users."""
     inner = _extract_upstream_error_text(response_text)
@@ -163,6 +193,60 @@ def _upstream_user_message(status_code: int, response_text: str) -> Optional[str
             "图片可能仍在后台生成，请稍后重试；若频繁出现请联系管理员检查上游服务。"
         )
     return None
+
+
+def _upstream_error_payload(status_code: int, response_text: str, *, stage: str = "upstream") -> dict:
+    inner = _extract_upstream_error_text(response_text)
+    mapped = _upstream_user_message(status_code, response_text)
+    retryable = status_code in (408, 409, 425, 429, 500, 502, 503, 504, 521, 522, 524)
+
+    if mapped:
+        message = mapped
+        code = "UPSTREAM_KNOWN_ERROR"
+        hint = "请按提示调整后重试；若多次出现，请联系管理员检查上游服务。"
+    elif status_code == 400:
+        message = "上游拒绝了这次生成请求（HTTP 400）。"
+        code = "UPSTREAM_BAD_REQUEST"
+        hint = "请检查模型是否支持当前模式、提示词是否为空、参考图数量和单张大小是否符合限制。"
+    elif status_code == 401:
+        message = "API Key 无效或已过期（上游返回 401）。"
+        code = "UPSTREAM_AUTH_FAILED"
+        hint = "请在右侧重新粘贴 API Key，或到上游控制台确认 Key 是否仍可用。"
+    elif status_code == 403:
+        message = "当前 API Key 没有权限使用这个模型或接口（上游返回 403）。"
+        code = "UPSTREAM_FORBIDDEN"
+        hint = "请更换有权限的 Key，或联系管理员开通该模型。"
+    elif status_code == 404:
+        message = "上游接口或模型不存在（HTTP 404）。"
+        code = "UPSTREAM_NOT_FOUND"
+        hint = "请确认 API_BASE_URL、模型 ID 和上游服务版本是否匹配。"
+    elif status_code == 429:
+        message = "上游请求过于频繁或额度不足（HTTP 429）。"
+        code = "UPSTREAM_RATE_LIMITED"
+        hint = "请稍后重试；如果一直出现，请检查上游额度或并发限制。"
+    elif status_code in (500, 502, 503):
+        message = f"上游生成服务异常（HTTP {status_code}）。"
+        code = "UPSTREAM_SERVER_ERROR"
+        hint = "这通常不是浏览器问题。请稍后重试；若持续出现，请管理员查看上游服务日志。"
+    elif status_code in (504, 521, 522, 524):
+        message = f"上游生成服务超时或暂时不可用（HTTP {status_code}）。"
+        code = "UPSTREAM_TIMEOUT"
+        hint = "生成可能仍在上游后台运行。建议稍后重试，或降低分辨率/缩短视频时长。"
+    else:
+        message = f"上游返回错误（HTTP {status_code}）。"
+        code = "UPSTREAM_ERROR"
+        hint = "请检查模型、提示词、参考图和上游服务状态。"
+
+    return _error_payload(
+        message,
+        code,
+        status_code=status_code,
+        hint=hint,
+        stage=stage,
+        retryable=retryable,
+        upstream_status=status_code,
+        upstream_message=inner,
+    )
 
 
 def _chat_content_from_result(result):
@@ -246,6 +330,39 @@ def _extract_image_urls(content):
     return image_urls
 
 
+def _normalize_media_url(url: str) -> str:
+    url = (url or "").strip().strip("<>").strip('"').strip("'")
+    if url.startswith("/"):
+        return BASE_URL + url
+    return url
+
+
+def _extract_video_urls(content):
+    video_urls = []
+    candidates = []
+    candidates.extend(re.findall(r'!\[.*?\]\((.*?)\)', content or ""))
+    candidates.extend(re.findall(r'\[.*?\]\((.*?)\)', content or ""))
+    candidates.extend(re.findall(r'(?:https?://|/)[^\s"\')\]]+', content or ""))
+
+    for raw_url in candidates:
+        url = _normalize_media_url(raw_url)
+        lower = url.lower().split("?", 1)[0]
+        if any(lower.endswith(ext) for ext in (".mp4", ".mov", ".webm", ".m4v")):
+            if url not in video_urls:
+                video_urls.append(url)
+    return video_urls
+
+
+def _is_video_model(model: str) -> bool:
+    return (model or "").startswith((
+        "firefly-sora2-",
+        "firefly-sora2-pro-",
+        "firefly-veo31-",
+        "firefly-kling3-",
+        "firefly-kling-o3-",
+    ))
+
+
 def _is_gemini_image_model(model: str) -> bool:
     return _gemini_upstream_model(model).startswith("gemini-") and "image" in _gemini_upstream_model(model)
 
@@ -292,6 +409,29 @@ def _make_gemini_model_options() -> list[str]:
         for size in sizes:
             out.append(_gemini_model_option(base_model, size))
     return out
+
+
+def _make_video_model_options() -> list[str]:
+    models = []
+    for family in ("firefly-sora2", "firefly-sora2-pro"):
+        for duration in ("4s", "8s", "12s"):
+            for ratio in ("16x9", "9x16"):
+                models.append(f"{family}-{duration}-{ratio}")
+
+    for family in ("firefly-veo31", "firefly-veo31-ref", "firefly-veo31-fast"):
+        for duration in ("4s", "6s", "8s"):
+            for ratio in ("16x9", "9x16"):
+                for resolution in ("1080p", "720p"):
+                    models.append(f"{family}-{duration}-{ratio}-{resolution}")
+
+    for duration in ("5s", "10s", "15s"):
+        for ratio in ("16x9", "9x16"):
+            models.append(f"firefly-kling3-{duration}-{ratio}")
+
+    for duration in ("5s", "15s"):
+        for ratio in ("16x9", "9x16"):
+            models.append(f"firefly-kling-o3-{duration}-{ratio}")
+    return models
 
 
 def _extract_inline_image_data(result):
@@ -520,6 +660,7 @@ MODELS = {
         "firefly-gpt-image-4k-9x16",
     ],
     "Gemini": _make_gemini_model_options(),
+    "Video": _make_video_model_options(),
 }
 
 ALL_MODELS = frozenset(m for models in MODELS.values() for m in models)
@@ -559,18 +700,36 @@ def _process_generate_request(data):
     images_data = data.get('images')
 
     if _estimate_image_payload_chars(data) > MAX_IMAGE_PAYLOAD_CHARS:
-        return None, {'error': '参考图数据过大，请压缩或减少图片数量'}, 413
+        return None, _error_payload(
+            "参考图数据过大，当前请求体超过服务端限制。",
+            "IMAGE_PAYLOAD_TOO_LARGE",
+            status_code=413,
+            hint="请压缩图片、降低分辨率，或减少参考图数量后再试。",
+            stage="request",
+        ), 413
 
     has_image = bool(image_data or images_data)
     logger.info(f"请求参数: model={model}, prompt长度={len(prompt) if prompt else 0}, 有图片={has_image}")
 
     if not api_key or not model or not prompt:
         logger.error(f"缺少必要参数: api_key={bool(api_key)}, model={model}, prompt={bool(prompt)}")
-        return None, {'error': '缺少必要参数'}, 400
+        return None, _error_payload(
+            "缺少必要参数。",
+            "MISSING_REQUIRED_FIELDS",
+            status_code=400,
+            hint="请确认已填写 API Key、选择模型，并输入提示词。",
+            stage="request",
+        ), 400
 
     if model not in ALL_MODELS:
         logger.error(f"无效的模型: {model}")
-        return None, {'error': '无效的模型'}, 400
+        return None, _error_payload(
+            f"无效的模型：{model}",
+            "INVALID_MODEL",
+            status_code=400,
+            hint="请重新选择左侧分组和右侧模型；如果模型来自新文档，需要先更新后端模型列表。",
+            stage="request",
+        ), 400
 
     try:
         is_gemini_image_model = _is_gemini_image_model(model)
@@ -634,7 +793,15 @@ def _process_generate_request(data):
                     content, stream_err = _read_streaming_chat_content(response)
                     if stream_err:
                         logger.error(f"流式响应解析失败: {stream_err}")
-                        return None, {'error': stream_err}, 500
+                        return None, _error_payload(
+                            "上游流式响应解析失败。",
+                            "UPSTREAM_STREAM_PARSE_FAILED",
+                            status_code=502,
+                            hint="上游返回了无法解析的流式内容。请稍后重试；若持续出现，请管理员检查上游兼容格式。",
+                            stage="upstream",
+                            retryable=True,
+                            upstream_message=stream_err,
+                        ), 502
                 else:
                     error_detail = response.text[:4000]
                     logger.error(
@@ -646,8 +813,8 @@ def _process_generate_request(data):
                         logger.warning("上游不支持流式参数，回退为普通请求")
                         content = None
                     else:
-                        msg = _upstream_user_message(response.status_code, error_detail) or "上游服务错误"
-                        return None, {'error': msg}, response.status_code
+                        payload_err = _upstream_error_payload(response.status_code, error_detail, stage="upstream_stream")
+                        return None, payload_err, response.status_code
 
             if content is None:
                 response = http_session.post(
@@ -659,14 +826,36 @@ def _process_generate_request(data):
                 logger.info(f"API响应状态码: {response.status_code}")
         except requests.exceptions.Timeout:
             logger.error("API请求超时")
-            return None, {'error': '上游生成等待超时。图片可能仍在后台生成，请稍后重试。'}, 504
+            return None, _error_payload(
+                "连接上游生成服务超时。",
+                "UPSTREAM_REQUEST_TIMEOUT",
+                status_code=504,
+                hint="生成可能仍在上游后台运行。请稍后重试；视频生成可尝试缩短时长或降低分辨率。",
+                stage="upstream",
+                retryable=True,
+            ), 504
         except requests.exceptions.ConnectionError as e:
             logger.error(f"无法连接到API服务器: {e}")
-            return None, {'error': '无法连接到API服务器'}, 500
+            return None, _error_payload(
+                "无法连接到上游 API 服务器。",
+                "UPSTREAM_CONNECTION_FAILED",
+                status_code=502,
+                hint="请检查 API_BASE_URL 是否正确、网络是否可访问，以及上游服务是否在线。",
+                stage="network",
+                retryable=True,
+                upstream_message=str(e),
+            ), 502
         except Exception as e:
             logger.error(f"连接异常: {e}")
-            msg = str(e) if app.debug else '连接失败'
-            return None, {'error': msg}, 500
+            return None, _error_payload(
+                "调用上游时发生连接异常。",
+                "UPSTREAM_CONNECTION_EXCEPTION",
+                status_code=502,
+                hint="请稍后重试；若持续出现，请管理员查看服务端日志。",
+                stage="network",
+                retryable=True,
+                upstream_message=str(e),
+            ), 502
 
         if content is None and response.status_code != 200:
             error_detail = response.text[:4000]
@@ -675,16 +864,24 @@ def _process_generate_request(data):
                 response.status_code,
                 error_detail[:500],
             )
-            msg = _upstream_user_message(response.status_code, error_detail) or "上游服务错误"
-            return None, {'error': msg}, response.status_code
+            payload_err = _upstream_error_payload(response.status_code, error_detail)
+            return None, payload_err, response.status_code
 
         if content is None:
             try:
                 result = response.json()
             except Exception as e:
                 logger.error(f"JSON解析失败: {e}, 响应文本: {response.text[:500]}")
-                msg = f'响应解析失败: {str(e)}' if app.debug else '响应解析失败'
-                return None, {'error': msg}, 500
+                return None, _error_payload(
+                    "上游响应不是有效 JSON，无法解析生成结果。",
+                    "UPSTREAM_INVALID_JSON",
+                    status_code=502,
+                    hint="上游可能返回了 HTML 错误页、网关报错或非兼容响应。请管理员查看上游原始响应。",
+                    stage="parse",
+                    retryable=True,
+                    upstream_message=response.text[:800],
+                    debug=str(e),
+                ), 502
 
             inline_images = _extract_inline_image_data(result)
             if inline_images:
@@ -697,26 +894,64 @@ def _process_generate_request(data):
 
             content, parse_err = _chat_content_from_result(result)
             if parse_err:
-                err_payload = {'error': parse_err}
-                if app.debug:
-                    err_payload['debug'] = str(result)[:200]
-                return None, err_payload, 500
+                return None, _error_payload(
+                    "上游响应格式不符合预期，无法读取生成内容。",
+                    "UPSTREAM_UNEXPECTED_FORMAT",
+                    status_code=502,
+                    hint="上游没有返回 choices[0].message.content 或 Gemini inline 图片。请检查模型是否仍兼容 chat/completions。",
+                    stage="parse",
+                    retryable=True,
+                    upstream_message=parse_err,
+                    debug=str(result)[:1000],
+                ), 502
+
+        if _is_video_model(model):
+            video_urls = _extract_video_urls(content)
+            if video_urls:
+                logger.info(f"成功提取视频数量: {len(video_urls)}")
+                video_urls = _rewrite_generated_image_urls(video_urls)
+                return {
+                    'video': video_urls[0],
+                    'media': video_urls[0],
+                    'mediaType': 'video',
+                    'allVideos': video_urls,
+                    'content': content,
+                }, None, 200
 
         image_urls = _extract_image_urls(content)
         if image_urls:
             logger.info(f"成功提取图片数量: {len(image_urls)}")
             image_urls = _rewrite_generated_image_urls(image_urls)
-            return {'image': image_urls[0], 'allImages': image_urls, 'content': content}, None, 200
+            return {
+                'image': image_urls[0],
+                'media': image_urls[0],
+                'mediaType': 'image',
+                'allImages': image_urls,
+                'content': content,
+            }, None, 200
 
-        logger.warning(f"未找到图片，内容前500字符: {content[:500]}")
-        err_payload = {'error': '未找到图片'}
-        if app.debug:
-            err_payload['debug'] = content[:500]
-        return None, err_payload, 500
+        logger.warning(f"未找到媒体，内容前500字符: {content[:500]}")
+        return None, _error_payload(
+            "生成完成，但没有在上游响应中找到可显示的图片或视频链接。",
+            "MEDIA_NOT_FOUND",
+            status_code=502,
+            hint="可能是上游返回了纯文本、媒体链接格式变化，或生成被内容策略拦截。请换提示词重试；若持续出现，请管理员查看上游原始内容。",
+            stage="parse",
+            retryable=True,
+            upstream_message=content[:800],
+            debug=content[:1000],
+        ), 502
     except Exception as e:
         logger.exception("生成图片时发生错误")
-        msg = str(e) if app.debug else '服务器错误'
-        return None, {'error': msg}, 500
+        return None, _error_payload(
+            "服务器处理生成请求时发生内部错误。",
+            "SERVER_INTERNAL_ERROR",
+            status_code=500,
+            hint="请稍后重试；若重复出现，请管理员查看后端日志。",
+            stage="server",
+            retryable=False,
+            debug=str(e),
+        ), 500
 
 
 def _run_generate_job(job_id: str, data: dict):
@@ -734,6 +969,9 @@ def _run_generate_job(job_id: str, data: dict):
             job_store[job_id]["status"] = "failed"
             job_store[job_id]["error"] = error_payload.get("error", "生成失败")
             job_store[job_id]["status_code"] = status_code
+            for key in ("code", "hint", "stage", "retryable", "upstreamStatus", "upstreamMessage"):
+                if key in error_payload:
+                    job_store[job_id][key] = error_payload[key]
             if app.debug and "debug" in error_payload:
                 job_store[job_id]["debug"] = error_payload["debug"]
         else:
@@ -745,6 +983,11 @@ def _run_generate_job(job_id: str, data: dict):
 @app.route('/favicon.ico')
 def favicon():
     return '', 204  # 返回空响应
+
+
+@app.route('/image.png')
+def image_png():
+    return send_from_directory(BASE_DIR, 'image.png')
 
 @app.route('/')
 def index():
@@ -760,24 +1003,61 @@ def get_models():
 def generate():
     logger.info("收到生成请求")
     if not request.is_json:
-        return jsonify({'error': 'Content-Type 必须为 application/json'}), 400
+        return jsonify(_error_payload(
+            "请求格式错误：Content-Type 必须为 application/json。",
+            "INVALID_CONTENT_TYPE",
+            status_code=400,
+            hint="请刷新页面后重试；如果你在直接调用接口，请使用 JSON 请求体。",
+            stage="request",
+        )), 400
     data = request.json
     if data is None:
-        return jsonify({'error': '请求体必须为 JSON'}), 400
+        return jsonify(_error_payload(
+            "请求体必须为 JSON。",
+            "INVALID_JSON_BODY",
+            status_code=400,
+            hint="请刷新页面后重试；如果你在直接调用接口，请检查 JSON 格式。",
+            stage="request",
+        )), 400
 
     # 轻量字段校验，避免无效请求占用队列槽位
     if not data.get("apiKey") or not data.get("model") or not data.get("prompt"):
-        return jsonify({'error': '缺少必要参数'}), 400
+        return jsonify(_error_payload(
+            "缺少必要参数。",
+            "MISSING_REQUIRED_FIELDS",
+            status_code=400,
+            hint="请确认已填写 API Key、选择模型，并输入提示词。",
+            stage="request",
+        )), 400
     if data.get("model") not in ALL_MODELS:
-        return jsonify({'error': '无效的模型'}), 400
+        return jsonify(_error_payload(
+            f"无效的模型：{data.get('model')}",
+            "INVALID_MODEL",
+            status_code=400,
+            hint="请重新选择模型；如果刚更新过 API 文档，需要同步后端模型列表。",
+            stage="request",
+        )), 400
     if _estimate_image_payload_chars(data) > MAX_IMAGE_PAYLOAD_CHARS:
-        return jsonify({'error': '参考图数据过大，请压缩或减少图片数量'}), 413
+        return jsonify(_error_payload(
+            "参考图数据过大，当前请求体超过服务端限制。",
+            "IMAGE_PAYLOAD_TOO_LARGE",
+            status_code=413,
+            hint="请压缩图片、降低分辨率，或减少参考图数量后再试。",
+            stage="request",
+        )), 413
 
     now_ts = time.time()
     with job_lock:
         _prune_jobs_unlocked(now_ts)
         if _active_job_count_unlocked() >= MAX_PENDING_JOBS:
-            return jsonify({'error': '服务繁忙，请稍后重试'}), 429
+            return jsonify(_error_payload(
+                "服务当前排队任务过多。",
+                "LOCAL_QUEUE_FULL",
+                status_code=429,
+                hint="请稍后再提交，或减少批量任务并发数量。",
+                stage="queue",
+                retryable=True,
+            )), 429
         job_id = uuid.uuid4().hex
         job_store[job_id] = {
             "id": job_id,
@@ -802,6 +1082,9 @@ def get_job_status(job_id):
         elif status == "failed":
             resp["error"] = info.get("error", "生成失败")
             resp["statusCode"] = info.get("status_code", 500)
+            for key in ("code", "hint", "stage", "retryable", "upstreamStatus", "upstreamMessage"):
+                if key in info:
+                    resp[key] = info[key]
             if app.debug and "debug" in info:
                 resp["debug"] = info["debug"]
         return jsonify(resp), 200
@@ -810,10 +1093,22 @@ def get_job_status(job_id):
 @app.errorhandler(Exception)
 def handle_exception(e):
     if isinstance(e, HTTPException):
-        return jsonify({'error': e.description or e.name}), e.code
+        return jsonify(_error_payload(
+            e.description or e.name,
+            "HTTP_EXCEPTION",
+            status_code=e.code or 500,
+            hint="请检查请求路径和参数后重试。",
+            stage="server",
+        )), e.code
     logger.exception("未处理的异常")
-    msg = str(e) if app.debug else '服务器内部错误'
-    return jsonify({'error': msg}), 500
+    return jsonify(_error_payload(
+        "服务器内部错误。",
+        "SERVER_UNHANDLED_EXCEPTION",
+        status_code=500,
+        hint="请稍后重试；若重复出现，请管理员查看后端日志。",
+        stage="server",
+        debug=str(e),
+    )), 500
 
 
 @app.route('/api/download')
@@ -821,11 +1116,23 @@ def download_image():
     url = request.args.get('url')
     
     if not url:
-        return jsonify({'error': '缺少URL'}), 400
+        return jsonify(_error_payload(
+            "缺少下载 URL。",
+            "DOWNLOAD_MISSING_URL",
+            status_code=400,
+            hint="请重新点击下载按钮；如果仍然出现，说明生成结果没有返回有效媒体地址。",
+            stage="download",
+        )), 400
 
     ok, err = _validate_download_url(url)
     if not ok:
-        return jsonify({'error': err}), 400
+        return jsonify(_error_payload(
+            f"下载地址不被允许：{err}",
+            "DOWNLOAD_URL_REJECTED",
+            status_code=400,
+            hint="为防止 SSRF，下载代理只允许白名单域名。可让管理员把可信媒体域名加入 DOWNLOAD_ALLOWED_HOSTS。",
+            stage="download",
+        )), 400
     
     try:
         response = http_session.get(url, timeout=30, stream=True)
@@ -840,7 +1147,13 @@ def download_image():
                 continue
             total += len(chunk)
             if total > MAX_DOWNLOAD_BYTES:
-                return jsonify({'error': '文件过大'}), 413
+                return jsonify(_error_payload(
+                    "媒体文件过大，超过下载代理限制。",
+                    "DOWNLOAD_FILE_TOO_LARGE",
+                    status_code=413,
+                    hint="请直接打开媒体链接保存，或让管理员调大 MAX_DOWNLOAD_BYTES。",
+                    stage="download",
+                )), 413
             chunks.append(chunk)
 
         data = b''.join(chunks)
@@ -853,7 +1166,15 @@ def download_image():
         )
     except requests.RequestException as e:
         logger.warning("下载失败: %s", e)
-        return jsonify({'error': '下载失败'}), 502
+        return jsonify(_error_payload(
+            "下载代理无法获取媒体文件。",
+            "DOWNLOAD_FETCH_FAILED",
+            status_code=502,
+            hint="媒体链接可能已过期、上游不可访问，或域名网络异常。请先尝试“打开视频/查看大图”。",
+            stage="download",
+            retryable=True,
+            upstream_message=str(e),
+        )), 502
 
 
 @app.route('/health')

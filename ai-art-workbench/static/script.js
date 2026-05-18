@@ -11,21 +11,30 @@ async function loadModelsFromApi() {
 
 // 状态
 let currentResolution = '2K';
-let currentMode = 'text2image';  // text2image 或 image2image 或 batch
+let currentMode = 'text2image';  // text2image / image2image / text2video / image2video / batch / videoBatch
 let uploadedImages = [null, null, null, null, null, null];  // 6张参考图
 let currentUploadIndex = 0;  // 当前上传的索引
 
 // 批量生成状态
 let batchTasks = [
-    { images: [null, null, null], prompt: '', result: null, status: 'pending' },
-    { images: [null, null, null], prompt: '', result: null, status: 'pending' },
-    { images: [null, null, null], prompt: '', result: null, status: 'pending' },
-    { images: [null, null, null], prompt: '', result: null, status: 'pending' },
-    { images: [null, null, null], prompt: '', result: null, status: 'pending' },
-    { images: [null, null, null], prompt: '', result: null, status: 'pending' }
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' }
 ];
 let currentBatchUploadTask = 0;
 let currentBatchUploadIndex = 0;
+
+let videoBatchTasks = [
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'video', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'video', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'video', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'video', status: 'pending' }
+];
+let currentVideoBatchUploadTask = 0;
+let currentVideoBatchUploadIndex = 0;
 
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
@@ -41,6 +50,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadApiKey();
     initModelSelect();
     initBatchModelSelect();
+    initVideoBatch();
     setupEventListeners();
 });
 
@@ -65,6 +75,7 @@ function newChat() {
     currentMode = 'text2image';
     document.getElementById('uploadArea').style.display = 'none';
     document.getElementById('batchArea').style.display = 'none';
+    document.getElementById('videoBatchArea').style.display = 'none';
     document.getElementById('welcomeMessage').style.display = 'flex';
     
     // 聚焦到输入框
@@ -80,8 +91,18 @@ function loadSettings() {
         btn.classList.toggle('active', btn.dataset.res === currentResolution);
     });
 
+    if (currentResolution === 'Video') {
+        currentMode = 'text2video';
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        document.querySelector('.mode-tab[data-mode="text2video"]').classList.add('active');
+        applyModeUi();
+    }
+
     // 更新模型列表
     updateModels();
+    if (!modelsData[currentResolution]?.length) {
+        switchResolution('2K');
+    }
 }
 
 // 加载保存的 API Key（仅当用户勾选「记住」）
@@ -159,6 +180,13 @@ function updateModels() {
 
 // 获取模型版本
 function getModelVersion(model) {
+    if (model.startsWith('firefly-sora2-pro-')) return 'Sora 2 Pro Video';
+    if (model.startsWith('firefly-sora2-')) return 'Sora 2 Video';
+    if (model.startsWith('firefly-veo31-ref-')) return 'Veo 3.1 Ref Video';
+    if (model.startsWith('firefly-veo31-fast-')) return 'Veo 3.1 Fast Video';
+    if (model.startsWith('firefly-veo31-')) return 'Veo 3.1 Video';
+    if (model.startsWith('firefly-kling3-')) return 'Kling 3.0 Video';
+    if (model.startsWith('firefly-kling-o3-')) return 'Kling O3 Video';
     if (model.startsWith('gemini-3-pro-image-preview')) return 'Google Gemini 3 Pro Image Preview';
     if (model.startsWith('gemini-3.1-flash-image-preview')) return 'Google Gemini 3.1 Flash Image Preview';
     if (model.startsWith('gemini-3.0-pro-image-2k')) return 'Google Gemini 3.0 Pro Image 2K';
@@ -173,6 +201,13 @@ function getModelVersion(model) {
 
 // 获取比例显示
 function getRatioDisplay(model) {
+    if (isVideoModel(model)) {
+        const duration = (model.match(/-(\d+s)-/) || [])[1] || '';
+        const ratio = (model.match(/-(16x9|9x16)(?:-|$)/) || [])[1] || '';
+        const resolution = (model.match(/-(1080p|720p)$/) || [])[1] || '';
+        const ratioLabel = ratio ? ratio.replace('x', ':') : '';
+        return [duration, ratioLabel, resolution].filter(Boolean).join(' · ') || model;
+    }
     if (model === 'firefly-gpt-image-2-4k') {
         return '默认 (4K)';
     }
@@ -218,6 +253,82 @@ function getRatioDisplay(model) {
     return model;
 }
 
+function isVideoModel(model) {
+    return !!model && (
+        model.startsWith('firefly-sora2-') ||
+        model.startsWith('firefly-sora2-pro-') ||
+        model.startsWith('firefly-veo31-') ||
+        model.startsWith('firefly-kling3-') ||
+        model.startsWith('firefly-kling-o3-')
+    );
+}
+
+function isVideoMode() {
+    return currentMode === 'text2video' || currentMode === 'image2video';
+}
+
+function isImageInputMode() {
+    return currentMode === 'image2image' || currentMode === 'image2video';
+}
+
+function switchResolution(resolution) {
+    currentResolution = resolution;
+    localStorage.setItem('resolution', currentResolution);
+    document.querySelectorAll('.resolution-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.res === currentResolution);
+    });
+    updateModels();
+}
+
+function applyModeUi() {
+    const uploadArea = document.getElementById('uploadArea');
+    const batchArea = document.getElementById('batchArea');
+    const videoBatchArea = document.getElementById('videoBatchArea');
+    const welcomeMessage = document.getElementById('welcomeMessage');
+    const messageInput = document.getElementById('messageInput');
+    const resultLoadingText = document.querySelector('#resultLoading span');
+
+    if (isImageInputMode()) {
+        uploadArea.style.display = 'flex';
+        updateUploadSlotsForMode();
+        uploadArea.querySelector('.upload-footer span').textContent = isVideoMode()
+            ? '参考图：Sora 支持 1 张；Veo/Kling 支持 1-3 张，单张建议不超过 10MB'
+            : '📎 参考图最大支持 10MB';
+    } else {
+        uploadArea.style.display = 'none';
+    }
+
+    batchArea.style.display = currentMode === 'batch' ? 'block' : 'none';
+    videoBatchArea.style.display = currentMode === 'videoBatch' ? 'block' : 'none';
+    welcomeMessage.style.display = currentMode === 'batch' || currentMode === 'videoBatch' || isImageInputMode() ? 'none' : 'flex';
+    messageInput.placeholder = isVideoMode()
+        ? '描述你想生成的视频镜头、运动、主体和风格...'
+        : '描述你想要生成的图片...';
+    if (resultLoadingText) {
+        resultLoadingText.textContent = isVideoMode() ? '正在生成视频...' : '正在生成图片...';
+    }
+}
+
+function updateUploadSlotsForMode() {
+    const maxSlots = currentMode === 'image2video' ? 3 : 6;
+    document.querySelectorAll('.upload-item').forEach((item, index) => {
+        item.style.display = index < maxSlots ? 'block' : 'none';
+        if (index >= maxSlots && uploadedImages[index]) {
+            uploadedImages[index] = null;
+            updateUploadPreview(index);
+        }
+    });
+}
+
+function maxVideoReferenceImages(model) {
+    if (model.startsWith('firefly-sora2-')) return 1;
+    if (model.startsWith('firefly-veo31-ref-')) return 3;
+    if (model.startsWith('firefly-veo31-')) return 2;
+    if (model.startsWith('firefly-kling3-')) return 2;
+    if (model.startsWith('firefly-kling-o3-')) return 2;
+    return 1;
+}
+
 // 设置事件监听
 function setupEventListeners() {
     // 输入框快捷键
@@ -238,34 +349,34 @@ function setupEventListeners() {
             document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
             this.classList.add('active');
             currentMode = this.dataset.mode;
-
-            const uploadArea = document.getElementById('uploadArea');
-            const batchArea = document.getElementById('batchArea');
-
-            if (currentMode === 'image2image') {
-                uploadArea.style.display = 'flex';
-                batchArea.style.display = 'none';
-                document.getElementById('welcomeMessage').style.display = 'none';
+            if (isVideoMode()) {
+                switchResolution('Video');
+            } else if (currentMode === 'videoBatch') {
+                updateVideoBatchModels();
             } else if (currentMode === 'batch') {
-                uploadArea.style.display = 'none';
-                batchArea.style.display = 'block';
-                document.getElementById('welcomeMessage').style.display = 'none';
-            } else {
-                uploadArea.style.display = 'none';
-                batchArea.style.display = 'none';
-                document.getElementById('welcomeMessage').style.display = 'flex';
+                currentResolution = document.getElementById('batchResolutionSelect').value;
+                updateBatchModels();
+            } else if (currentMode !== 'batch' && currentResolution === 'Video') {
+                switchResolution('2K');
             }
+            applyModeUi();
         });
     });
 
     // 分辨率按钮
     document.querySelectorAll('.resolution-btn').forEach(btn => {
         btn.addEventListener('click', function() {
-            document.querySelectorAll('.resolution-btn').forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-            currentResolution = this.dataset.res;
-            localStorage.setItem('resolution', currentResolution);
-            updateModels();
+            switchResolution(this.dataset.res);
+            if (currentResolution === 'Video' && (currentMode === 'text2image' || currentMode === 'image2image')) {
+                currentMode = currentMode === 'image2image' ? 'image2video' : 'text2video';
+                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+                document.querySelector(`.mode-tab[data-mode="${currentMode}"]`).classList.add('active');
+            } else if (currentResolution !== 'Video' && isVideoMode()) {
+                currentMode = currentMode === 'image2video' ? 'image2image' : 'text2image';
+                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+                document.querySelector(`.mode-tab[data-mode="${currentMode}"]`).classList.add('active');
+            }
+            applyModeUi();
         });
     });
 
@@ -385,6 +496,28 @@ function localizeApiErrorMessage(status, rawMsg) {
     return msg;
 }
 
+function formatStructuredError(data, fallbackStatus) {
+    if (!data || typeof data !== 'object') {
+        return localizeApiErrorMessage(fallbackStatus || 500, '');
+    }
+    const status = data.statusCode || data.upstreamStatus || fallbackStatus || 500;
+    const parts = [];
+    const main = localizeApiErrorMessage(status, data.error || '请求失败');
+    if (main) parts.push(main);
+    if (data.hint) parts.push(`建议：${data.hint}`);
+
+    const details = [];
+    if (data.code) details.push(`错误码 ${data.code}`);
+    if (data.stage) details.push(`阶段 ${data.stage}`);
+    if (data.upstreamStatus) details.push(`上游 HTTP ${data.upstreamStatus}`);
+    if (details.length) parts.push(`技术信息：${details.join(' / ')}`);
+
+    if (data.upstreamMessage && data.upstreamMessage !== data.error) {
+        parts.push(`上游原始信息：${String(data.upstreamMessage).slice(0, 300)}`);
+    }
+    return parts.join('\n');
+}
+
 /**
  * 请求失败后展示给用户的说明：优先使用服务端 JSON 里的 error 字段。
  */
@@ -392,8 +525,8 @@ function describeHttpFailure(status, responseText) {
     if (responseText && responseText.trim()) {
         try {
             const j = JSON.parse(responseText);
-            if (j.error && typeof j.error === 'string' && j.error.trim()) {
-                return localizeApiErrorMessage(status, j.error.trim());
+            if (j && typeof j === 'object' && (j.error || j.hint || j.code)) {
+                return formatStructuredError(j, status);
             }
         } catch (_) {
             const snippet = responseText.trim().slice(0, 120);
@@ -457,8 +590,7 @@ async function pollGenerateJob(jobId, timeout = 600000) {
         }
         if (data.status === 'succeeded') return data.result || {};
         if (data.status === 'failed') {
-            const statusCode = data.statusCode || 500;
-            throw new Error(localizeApiErrorMessage(statusCode, data.error || '生成失败'));
+            throw new Error(formatStructuredError(data, data.statusCode || 500));
         }
         await new Promise(resolve => setTimeout(resolve, 1500));
     }
@@ -481,8 +613,18 @@ async function sendGenerate() {
         return;
     }
     
-    // 图生图模式检查（至少上传一张图）
-    if (currentMode === 'image2image' && !uploadedImages.some(img => img !== null)) {
+    if (isVideoMode() && !isVideoModel(model)) {
+        alert('请选择 Video 分组中的视频模型');
+        return;
+    }
+
+    if (!isVideoMode() && isVideoModel(model)) {
+        alert('视频模型请使用文生视频或图生视频模式');
+        return;
+    }
+
+    // 图生图/图生视频模式检查（至少上传一张图）
+    if (isImageInputMode() && !uploadedImages.some(img => img !== null)) {
         alert('请至少上传一张参考图');
         return;
     }
@@ -508,9 +650,13 @@ async function sendGenerate() {
             prompt: prompt
         };
         
-        // 图生图模式添加多张参考图
-        if (currentMode === 'image2image') {
+        // 图生图/图生视频模式添加多张参考图
+        if (isImageInputMode()) {
             const images = uploadedImages.filter(img => img !== null);
+            if (isVideoMode() && images.length > maxVideoReferenceImages(model)) {
+                alert(`当前视频模型最多支持 ${maxVideoReferenceImages(model)} 张参考图`);
+                return;
+            }
             if (images.length === 1) {
                 requestBody.image = images[0];
             } else {
@@ -522,18 +668,7 @@ async function sendGenerate() {
         const jobId = await submitGenerateJob(requestBody);
         btn.textContent = '生成中...';
         const data = await pollGenerateJob(jobId);
-
-        if (data.image) {
-            const httpsUrl = ensureHttps(data.image);
-            document.getElementById('resultLoading').style.display = 'none';
-            document.getElementById('resultContent').innerHTML = `
-                <img src="${httpsUrl}" alt="生成结果" onclick="window.open('${httpsUrl}', '_blank')">
-                <div class="result-actions">
-                    <button onclick="viewImage('${httpsUrl}')">查看大图</button>
-                    <button onclick="downloadImage('${httpsUrl}')">下载</button>
-                </div>
-            `;
-        }
+        renderResult(data);
 
     } catch (error) {
         document.getElementById('resultLoading').style.display = 'none';
@@ -543,12 +678,19 @@ async function sendGenerate() {
         } else if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('net::ERR'))) {
             errorMsg = '网络连接被重置，已自动重试多次，请重试';
         }
-        document.getElementById('resultContent').innerHTML = `<div class="error">请求失败：${escapeHtml(errorMsg)}</div>`;
+        document.getElementById('resultContent').innerHTML = renderErrorBlock(errorMsg);
         console.error('Request error:', error);
     } finally {
         btn.disabled = false;
         btn.textContent = '开始生成';
     }
+}
+
+function renderErrorBlock(message) {
+    const lines = String(message || '请求失败').split('\n').filter(Boolean);
+    const title = lines.shift() || '请求失败';
+    const detail = lines.map(line => `<p>${escapeHtml(line)}</p>`).join('');
+    return `<div class="error"><strong>${escapeHtml(title)}</strong>${detail}</div>`;
 }
 
 // 将 HTTP URL 转换为 HTTPS，解决混合内容问题
@@ -566,18 +708,49 @@ function viewImage(url) {
     window.open(ensureHttps(url), '_blank');
 }
 
-// 下载图片（代理下载失败时会弹出可读错误说明）
-async function downloadImage(url) {
-    console.log('下载图片:', url);
+function renderResult(data) {
+    const mediaType = data.mediaType || (data.video ? 'video' : 'image');
+    const rawUrl = data.video || data.image || data.media;
+    const mediaUrl = ensureHttps(rawUrl);
+    document.getElementById('resultLoading').style.display = 'none';
+
+    if (!mediaUrl) {
+        document.getElementById('resultContent').innerHTML = '<div class="error">未找到生成媒体</div>';
+        return;
+    }
+
+    if (mediaType === 'video') {
+        document.getElementById('resultContent').innerHTML = `
+            <video src="${mediaUrl}" controls playsinline preload="metadata"></video>
+            <div class="result-actions">
+                <button onclick="viewImage('${mediaUrl}')">打开视频</button>
+                <button onclick="downloadMedia('${mediaUrl}', 'video')">下载</button>
+            </div>
+        `;
+        return;
+    }
+
+    document.getElementById('resultContent').innerHTML = `
+        <img src="${mediaUrl}" alt="生成结果" onclick="window.open('${mediaUrl}', '_blank')">
+        <div class="result-actions">
+            <button onclick="viewImage('${mediaUrl}')">查看大图</button>
+            <button onclick="downloadMedia('${mediaUrl}', 'image')">下载</button>
+        </div>
+    `;
+}
+
+// 下载媒体（代理下载失败时会弹出可读错误说明）
+async function downloadMedia(url, mediaType = 'image') {
+    console.log('下载媒体:', url);
     if (!url) {
-        alert('没有可下载的图片');
+        alert('没有可下载的媒体');
         return;
     }
 
     if (url.startsWith('data:')) {
         const link = document.createElement('a');
         link.href = url;
-        link.download = `ai-image-${Date.now()}.jpg`;
+        link.download = mediaType === 'video' ? `ai-video-${Date.now()}.mp4` : `ai-image-${Date.now()}.jpg`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -598,7 +771,7 @@ async function downloadImage(url) {
         const blobUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = blobUrl;
-        link.download = `ai-image-${Date.now()}.jpg`;
+        link.download = mediaType === 'video' ? `ai-video-${Date.now()}.mp4` : `ai-image-${Date.now()}.jpg`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -609,6 +782,10 @@ async function downloadImage(url) {
             window.open(downloadUrl, '_blank');
         } catch (_) {}
     }
+}
+
+function downloadImage(url) {
+    return downloadMedia(url, 'image');
 }
 
 // 历史记录
@@ -625,8 +802,8 @@ function loadHistory() {
     const history = JSON.parse(localStorage.getItem('promptHistory') || '[]');
     const container = document.getElementById('historyList');
     container.innerHTML = history.map(item => `
-        <div class="history-item" onclick="useHistoryPrompt('${escapeHtml(item.prompt)}')">
-            <div class="history-prompt">${escapeHtml(item.prompt.substring(0, 50))}${item.prompt.length > 50 ? '...' : ''}</div>
+        <div class="history-item" title="${escapeHtml(item.prompt)}" onclick="useHistoryPrompt('${escapeHtml(item.prompt)}')">
+            <div class="history-prompt">${escapeHtml(item.prompt)}</div>
         </div>
     `).join('');
 }
@@ -658,7 +835,10 @@ function updateBatchModels() {
     const select = document.getElementById('batchModelSelect');
     select.innerHTML = '';
 
-    const models = modelsData[currentResolution] || [];
+    if (currentResolution === 'Video') {
+        currentResolution = '2K';
+    }
+    const models = (modelsData[currentResolution] || []).filter(model => !isVideoModel(model));
     let lastVersion = '';
 
     models.forEach(model => {
@@ -735,6 +915,97 @@ function removeBatchImage(taskIndex, imgIndex) {
     updateBatchUploadPreview(taskIndex, imgIndex);
 }
 
+function initVideoBatch() {
+    renderVideoBatchCards();
+    updateVideoBatchModels();
+}
+
+function updateVideoBatchModels() {
+    const select = document.getElementById('videoBatchModelSelect');
+    if (!select) return;
+    select.innerHTML = '';
+
+    const models = modelsData.Video || [];
+    let lastVersion = '';
+    models.forEach(model => {
+        const version = getModelVersion(model);
+        if (version !== lastVersion) {
+            const group = document.createElement('optgroup');
+            group.label = version;
+            select.appendChild(group);
+            lastVersion = version;
+        }
+
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = '  ' + getRatioDisplay(model);
+        select.appendChild(option);
+    });
+}
+
+function renderVideoBatchCards() {
+    const grid = document.getElementById('videoBatchGrid');
+    if (!grid) return;
+    grid.innerHTML = videoBatchTasks.map((_, index) => `
+        <div class="batch-card video-batch-card" data-video-task-id="${index}">
+            <div class="batch-card-header">
+                <span class="batch-card-title">视频 ${index + 1}</span>
+                <span class="batch-card-status" data-status="pending">待开始</span>
+                <button class="btn-clear-task" onclick="clearVideoTask(${index})">×</button>
+            </div>
+            <div class="batch-card-images">
+                <div class="batch-upload-item" onclick="triggerVideoBatchUpload(${index}, 0)"><span>+</span></div>
+                <div class="batch-upload-item" onclick="triggerVideoBatchUpload(${index}, 1)"><span>+</span></div>
+                <div class="batch-upload-item" onclick="triggerVideoBatchUpload(${index}, 2)"><span>+</span></div>
+            </div>
+            <textarea class="batch-prompt" placeholder="输入视频提示词..." rows="3"></textarea>
+            <div class="batch-card-result" style="display: none;"></div>
+            <div class="batch-card-actions">
+                <button class="btn-batch-start" onclick="startVideoTask(${index})">开始</button>
+            </div>
+        </div>
+    `).join('');
+    videoBatchTasks.forEach((_, index) => updateVideoTaskUI(index));
+}
+
+function triggerVideoBatchUpload(taskIndex, imgIndex) {
+    currentVideoBatchUploadTask = taskIndex;
+    currentVideoBatchUploadIndex = imgIndex;
+    document.getElementById('videoBatchImageInput').click();
+}
+
+function handleVideoBatchImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        videoBatchTasks[currentVideoBatchUploadTask].images[currentVideoBatchUploadIndex] = e.target.result;
+        updateVideoBatchUploadPreview(currentVideoBatchUploadTask, currentVideoBatchUploadIndex);
+    };
+    reader.readAsDataURL(file);
+    event.target.value = '';
+}
+
+function updateVideoBatchUploadPreview(taskIndex, imgIndex) {
+    const card = document.querySelectorAll('.video-batch-card')[taskIndex];
+    const imgContainer = card.querySelectorAll('.batch-upload-item')[imgIndex];
+    const img = videoBatchTasks[taskIndex].images[imgIndex];
+
+    if (img) {
+        imgContainer.classList.add('has-image');
+        imgContainer.innerHTML = `<img src="${img}" alt="参考图"><button class="btn-remove-img" onclick="event.stopPropagation(); removeVideoBatchImage(${taskIndex}, ${imgIndex})">✕</button>`;
+    } else {
+        imgContainer.classList.remove('has-image');
+        imgContainer.innerHTML = '<span>+</span>';
+    }
+}
+
+function removeVideoBatchImage(taskIndex, imgIndex) {
+    videoBatchTasks[taskIndex].images[imgIndex] = null;
+    updateVideoBatchUploadPreview(taskIndex, imgIndex);
+}
+
 // 带超时和重试的 fetch 函数
 async function fetchWithRetry(url, options, retries = 3, timeout = 180000) {
     const controller = new AbortController();
@@ -801,6 +1072,12 @@ async function startTask(taskIndex) {
 
     try {
         const selectedModel = document.getElementById('batchModelSelect').value;
+        if (isVideoModel(selectedModel)) {
+            alert('图片批量不支持视频模型，请使用「视频批量」模块');
+            task.status = 'failed';
+            updateTaskUI(taskIndex);
+            return;
+        }
         const requestBody = {
             apiKey: apiKey,
             model: selectedModel,
@@ -810,14 +1087,21 @@ async function startTask(taskIndex) {
         // 添加参考图
         const images = task.images.filter(img => img !== null);
         if (images.length > 0) {
+            if (isVideoModel(selectedModel) && images.length > maxVideoReferenceImages(selectedModel)) {
+                alert(`任务${taskIndex + 1}参考图过多：当前视频模型最多支持 ${maxVideoReferenceImages(selectedModel)} 张`);
+                task.status = 'failed';
+                updateTaskUI(taskIndex);
+                return;
+            }
             requestBody.images = images;
         }
 
         const jobId = await submitGenerateJob(requestBody);
         const data = await pollGenerateJob(jobId);
 
-        if (data.image) {
-            task.result = ensureHttps(data.image);
+        if (data.image || data.video || data.media) {
+            task.result = ensureHttps(data.image || data.video || data.media);
+            task.mediaType = data.mediaType || (data.video ? 'video' : 'image');
             task.status = 'completed';
             updateTaskUI(taskIndex);
         }
@@ -868,15 +1152,20 @@ function updateTaskUI(taskIndex) {
     btn.onclick = () => {
         if (task.status === 'pending') startTask(taskIndex);
         else if (task.status === 'generating') task.status = 'pending';
-        else if (task.status === 'completed') downloadImage(task.result);
+        else if (task.status === 'completed') downloadMedia(task.result, task.mediaType || 'image');
         else if (task.status === 'failed') startTask(taskIndex);
     };
 
     // 更新结果
     if (task.result) {
         resultEl.style.display = 'block';
-        resultEl.querySelector('img').src = task.result;
-        resultEl.querySelector('img').onclick = () => window.open(task.result, '_blank');
+        if (task.mediaType === 'video') {
+            resultEl.innerHTML = `<video src="${task.result}" controls playsinline preload="metadata"></video>`;
+            resultEl.querySelector('video').onclick = () => window.open(task.result, '_blank');
+        } else {
+            resultEl.innerHTML = `<img src="${task.result}" alt="结果">`;
+            resultEl.querySelector('img').onclick = () => window.open(task.result, '_blank');
+        }
     } else {
         resultEl.style.display = 'none';
     }
@@ -896,6 +1185,7 @@ function clearTask(taskIndex) {
         images: [null, null, null],
         prompt: '',
         result: null,
+        mediaType: 'image',
         status: 'pending'
     };
 
@@ -950,7 +1240,9 @@ function downloadAllResults() {
             // 使用后端下载接口，支持跨域
             const link = document.createElement('a');
             link.href = `/api/download?url=${encodeURIComponent(task.result)}`;
-            link.download = `batch-image-${index + 1}-${Date.now()}.jpg`;
+            link.download = task.mediaType === 'video'
+                ? `batch-video-${index + 1}-${Date.now()}.mp4`
+                : `batch-image-${index + 1}-${Date.now()}.jpg`;
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -959,5 +1251,168 @@ function downloadAllResults() {
 
     if (!hasResults) {
         alert('没有可下载的结果');
+    }
+}
+
+async function startVideoTask(taskIndex) {
+    const task = videoBatchTasks[taskIndex];
+    const card = document.querySelectorAll('.video-batch-card')[taskIndex];
+    const promptInput = card.querySelector('.batch-prompt');
+
+    task.prompt = promptInput.value.trim();
+    if (!task.prompt) {
+        alert('请输入视频提示词');
+        return;
+    }
+
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) {
+        alert('请输入 API Key');
+        return;
+    }
+
+    const selectedModel = document.getElementById('videoBatchModelSelect').value;
+    if (!selectedModel || !isVideoModel(selectedModel)) {
+        alert('请选择视频模型');
+        return;
+    }
+
+    const images = task.images.filter(img => img !== null);
+    if (images.length > maxVideoReferenceImages(selectedModel)) {
+        alert(`视频 ${taskIndex + 1} 参考图过多：当前模型最多支持 ${maxVideoReferenceImages(selectedModel)} 张`);
+        return;
+    }
+
+    task.status = 'generating';
+    updateVideoTaskUI(taskIndex);
+
+    try {
+        const requestBody = {
+            apiKey,
+            model: selectedModel,
+            prompt: task.prompt
+        };
+        if (images.length === 1) {
+            requestBody.image = images[0];
+        } else if (images.length > 1) {
+            requestBody.images = images;
+        }
+
+        const jobId = await submitGenerateJob(requestBody);
+        const data = await pollGenerateJob(jobId, 900000);
+        if (data.video || data.media) {
+            task.result = ensureHttps(data.video || data.media);
+            task.mediaType = 'video';
+            task.status = 'completed';
+        } else {
+            task.status = 'failed';
+            alert(`视频 ${taskIndex + 1} 没有返回视频结果`);
+        }
+    } catch (error) {
+        task.status = 'failed';
+        console.error('Video task error:', error);
+        alert(`视频 ${taskIndex + 1} 错误: ${error.message || '生成失败'}`);
+    } finally {
+        updateVideoTaskUI(taskIndex);
+    }
+}
+
+function updateVideoTaskUI(taskIndex) {
+    const task = videoBatchTasks[taskIndex];
+    const card = document.querySelectorAll('.video-batch-card')[taskIndex];
+    if (!card) return;
+    const statusEl = card.querySelector('.batch-card-status');
+    const btn = card.querySelector('.btn-batch-start');
+    const resultEl = card.querySelector('.batch-card-result');
+
+    const statusMap = {
+        pending: '待开始',
+        generating: '生成中',
+        completed: '已完成',
+        failed: '失败'
+    };
+    statusEl.dataset.status = task.status;
+    statusEl.textContent = statusMap[task.status] || '待开始';
+
+    const btnMap = {
+        pending: '开始',
+        generating: '生成中',
+        completed: '下载',
+        failed: '重试'
+    };
+    btn.dataset.status = task.status;
+    btn.textContent = btnMap[task.status] || '开始';
+    btn.disabled = task.status === 'generating';
+    btn.onclick = () => {
+        if (task.status === 'completed') downloadMedia(task.result, 'video');
+        else startVideoTask(taskIndex);
+    };
+
+    if (task.result) {
+        resultEl.style.display = 'block';
+        resultEl.innerHTML = `<video src="${task.result}" controls playsinline preload="metadata"></video>`;
+    } else {
+        resultEl.style.display = 'none';
+        resultEl.innerHTML = '';
+    }
+}
+
+function clearVideoTask(taskIndex) {
+    videoBatchTasks[taskIndex] = {
+        images: [null, null, null],
+        prompt: '',
+        result: null,
+        mediaType: 'video',
+        status: 'pending'
+    };
+    const card = document.querySelectorAll('.video-batch-card')[taskIndex];
+    card.querySelector('.batch-prompt').value = '';
+    card.querySelector('.batch-card-result').style.display = 'none';
+    card.querySelectorAll('.batch-upload-item').forEach(container => {
+        container.classList.remove('has-image');
+        container.innerHTML = '<span>+</span>';
+    });
+    updateVideoTaskUI(taskIndex);
+}
+
+async function startAllVideoTasks() {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) {
+        alert('请输入 API Key');
+        return;
+    }
+
+    for (let i = 0; i < videoBatchTasks.length; i++) {
+        const task = videoBatchTasks[i];
+        const card = document.querySelectorAll('.video-batch-card')[i];
+        task.prompt = card.querySelector('.batch-prompt').value.trim();
+        if (task.prompt && task.status === 'pending') {
+            await startVideoTask(i);
+        }
+    }
+}
+
+function clearAllVideoTasks() {
+    for (let i = 0; i < videoBatchTasks.length; i++) {
+        clearVideoTask(i);
+    }
+}
+
+function downloadAllVideoResults() {
+    let hasResults = false;
+    videoBatchTasks.forEach((task, index) => {
+        if (task.result) {
+            hasResults = true;
+            const link = document.createElement('a');
+            link.href = `/api/download?url=${encodeURIComponent(task.result)}`;
+            link.download = `batch-video-${index + 1}-${Date.now()}.mp4`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    });
+
+    if (!hasResults) {
+        alert('没有可下载的视频结果');
     }
 }
