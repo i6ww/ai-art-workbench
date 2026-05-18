@@ -13,6 +13,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -i https://pypi.python.org/simple -r requirements.txt
 
 COPY app.py .
+COPY image.png .
 COPY static/ ./static/
 
 # 单容器直连时使用；docker-compose 中会由环境变量覆盖
