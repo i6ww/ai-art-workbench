@@ -156,44 +156,65 @@ function initModelSelect() {
 // 更新模型列表
 function updateModels() {
     const select = document.getElementById('modelSelect');
-    select.innerHTML = '';
-    
     const models = modelsData[currentResolution] || [];
-    let lastVersion = '';
-    
+    renderModelOptions(select, models);
+}
+
+function renderModelOptions(select, models) {
+    select.innerHTML = '';
+
+    if (!models.length) {
+        const option = document.createElement('option');
+        option.disabled = true;
+        option.selected = true;
+        option.textContent = '暂无可用模型';
+        select.appendChild(option);
+        return;
+    }
+
+    const groups = new Map();
     models.forEach(model => {
-        const version = getModelVersion(model);
-        if (version !== lastVersion) {
-            // 添加版本分组标题
-            const group = document.createElement('optgroup');
-            group.label = version;
+        const groupLabel = getModelGroupLabel(model);
+        let group = groups.get(groupLabel);
+        if (!group) {
+            group = document.createElement('optgroup');
+            group.label = groupLabel;
             select.appendChild(group);
-            lastVersion = version;
+            groups.set(groupLabel, group);
         }
-        
+
         const option = document.createElement('option');
         option.value = model;
-        option.textContent = '  ' + getRatioDisplay(model);
-        select.appendChild(option);
+        option.textContent = getRatioDisplay(model);
+        option.title = model;
+        group.appendChild(option);
     });
 }
 
 // 获取模型版本
 function getModelVersion(model) {
-    if (model.startsWith('firefly-sora2-')) return 'Sora 2 Video';
-    if (model.startsWith('firefly-veo31-ref-')) return 'Veo 3.1 Ref Video';
-    if (model.startsWith('firefly-veo31-fast-')) return 'Veo 3.1 Fast Video';
-    if (model.startsWith('firefly-veo31-')) return 'Veo 3.1 Video';
-    if (model.startsWith('firefly-kling3-')) return 'Kling 3.0 Video';
-    if (model.startsWith('gemini-3-pro-image-preview')) return 'Google Gemini 3 Pro Image Preview';
-    if (model.startsWith('gemini-3.1-flash-image-preview')) return 'Google Gemini 3.1 Flash Image Preview';
-    if (model.startsWith('gemini-3.0-pro-image-2k')) return 'Google Gemini 3.0 Pro Image 2K';
-    if (model.startsWith('gemini-3.0-pro-image-4k')) return 'Google Gemini 3.0 Pro Image 4K';
-    if (model === 'gpt-image-2') return 'OpenAI gpt-image-2';
-    if (model.includes('firefly-gpt-image')) return 'firefly-gpt-image-2';
-    if (model.includes('nano-banana-pro')) return 'firefly-nano-banana-pro';
-    if (model.includes('nano-banana2')) return 'firefly-nano-banana2';
-    if (model.includes('nano-banana')) return 'firefly-nano-banana';
+    return getModelGroupLabel(model);
+}
+
+function getModelGroupLabel(model) {
+    const mediaType = isVideoModel(model) ? '视频模型' : '图片模型';
+    return `${mediaType} / ${getModelFamilyLabel(model)}`;
+}
+
+function getModelFamilyLabel(model) {
+    if (model.startsWith('firefly-sora2-')) return 'Sora 2';
+    if (model.startsWith('firefly-veo31-ref-')) return 'Veo 3.1 参考图';
+    if (model.startsWith('firefly-veo31-fast-')) return 'Veo 3.1 极速';
+    if (model.startsWith('firefly-veo31-')) return 'Veo 3.1 标准';
+    if (model.startsWith('firefly-kling3-')) return 'Kling 3.0';
+    if (model.startsWith('gemini-3-pro-image-preview')) return 'Gemini 3 Pro Image Preview';
+    if (model.startsWith('gemini-3.1-flash-image-preview')) return 'Gemini 3.1 Flash Image Preview';
+    if (model.startsWith('gemini-3.0-pro-image-2k')) return 'Gemini 3.0 Pro Image 2K';
+    if (model.startsWith('gemini-3.0-pro-image-4k')) return 'Gemini 3.0 Pro Image 4K';
+    if (model === 'gpt-image-2' || model.includes('firefly-gpt-image')) return 'GPT Image 2';
+    if (model.includes('nano-banana-pro')) return 'Nano Banana Pro';
+    if (model.includes('nano-banana2')) return 'Nano Banana 2';
+    if (model.includes('nano-banana')) return 'Nano Banana';
     return model.split('-').slice(0, 3).join('-');
 }
 
@@ -203,25 +224,16 @@ function getRatioDisplay(model) {
         const duration = (model.match(/-(\d+s)-/) || [])[1] || '';
         const ratio = (model.match(/-(16x9|9x16)(?:-|$)/) || [])[1] || '';
         const resolution = (model.match(/-(1080p|720p)$/) || [])[1] || '';
-        const ratioLabel = ratio ? ratio.replace('x', ':') : '';
-        return [duration, ratioLabel, resolution].filter(Boolean).join(' · ') || model;
+        const ratioLabel = ratio ? formatRatioLabel(ratio) : '';
+        return [duration, ratioLabel, resolution].filter(Boolean).join(' / ') || model;
     }
     if (model === 'firefly-gpt-image-2-4k') {
-        return '默认 (4K)';
+        return '4K / 默认比例';
     }
     if (model.startsWith('gemini-')) {
         const sizeMatch = model.match(/__size-(1k|2k|4k)/i);
         if (sizeMatch) {
-            const size = sizeMatch[1].toUpperCase();
-            const baseModel = model.split('__')[0];
-            const modelLabelMap = {
-                'gemini-3-pro-image-preview': 'Gemini 3 Pro',
-                'gemini-3.1-flash-image-preview': 'Gemini 3.1 Flash',
-                'gemini-3.0-pro-image-2k': 'Gemini 3.0 Pro',
-                'gemini-3.0-pro-image-4k': 'Gemini 3.0 Pro',
-            };
-            const modelLabel = modelLabelMap[baseModel] || 'Gemini';
-            return `${modelLabel} · ${size} · 默认比例`;
+            return `${sizeMatch[1].toUpperCase()} / 默认比例`;
         }
         return model
             .replace(/__size-\w+$/, '')
@@ -236,19 +248,33 @@ function getRatioDisplay(model) {
             const w = match[1], h = match[2], quality = match[3];
             const qualityMap = { h: '高质量', m: '中质量', l: '低质量' };
             const qLabel = qualityMap[quality] || quality;
-            const label = w === h ? '方形' : (parseInt(w) > parseInt(h) ? '横屏' : '竖屏');
-            return `${w}:${h} ${label} (${qLabel})`;
+            return `4K / ${formatRatioLabel(`${w}x${h}`)} / ${qLabel}`;
         }
     }
     
     const ratioMatch = model.match(/(\d+)x(\d+)/);
     if (ratioMatch) {
-        const w = ratioMatch[1];
-        const h = ratioMatch[2];
-        const label = w === h ? '方形' : (parseInt(w) > parseInt(h) ? '横屏' : '竖屏');
-        return `${w}:${h} ${label}`;
+        const size = getImageSizeLabel(model);
+        return [size, formatRatioLabel(`${ratioMatch[1]}x${ratioMatch[2]}`)].filter(Boolean).join(' / ');
     }
     return model;
+}
+
+function getImageSizeLabel(model) {
+    const geminiSize = model.match(/__size-(1k|2k|4k)/i);
+    if (geminiSize) return geminiSize[1].toUpperCase();
+    if (model.includes('gpt-image-2-4k')) return '4K';
+    const size = model.match(/-(1k|2k|4k)(?:-|$)/i);
+    return size ? size[1].toUpperCase() : '';
+}
+
+function formatRatioLabel(ratio) {
+    const match = String(ratio || '').match(/^(\d+)x(\d+)$/);
+    if (!match) return ratio;
+    const w = parseInt(match[1], 10);
+    const h = parseInt(match[2], 10);
+    const direction = w === h ? '方形' : (w > h ? '横屏' : '竖屏');
+    return `${w}:${h} ${direction}`;
 }
 
 function isVideoModel(model) {
@@ -828,28 +854,12 @@ function initBatchModelSelect() {
 // 更新批量模型列表
 function updateBatchModels() {
     const select = document.getElementById('batchModelSelect');
-    select.innerHTML = '';
 
     if (currentResolution === 'Video') {
         currentResolution = '2K';
     }
     const models = (modelsData[currentResolution] || []).filter(model => !isVideoModel(model));
-    let lastVersion = '';
-
-    models.forEach(model => {
-        const version = getModelVersion(model);
-        if (version !== lastVersion) {
-            const group = document.createElement('optgroup');
-            group.label = version;
-            select.appendChild(group);
-            lastVersion = version;
-        }
-
-        const option = document.createElement('option');
-        option.value = model;
-        option.textContent = '  ' + getRatioDisplay(model);
-        select.appendChild(option);
-    });
+    renderModelOptions(select, models);
 }
 
 // 应用设置到所有任务
@@ -918,24 +928,9 @@ function initVideoBatch() {
 function updateVideoBatchModels() {
     const select = document.getElementById('videoBatchModelSelect');
     if (!select) return;
-    select.innerHTML = '';
 
     const models = modelsData.Video || [];
-    let lastVersion = '';
-    models.forEach(model => {
-        const version = getModelVersion(model);
-        if (version !== lastVersion) {
-            const group = document.createElement('optgroup');
-            group.label = version;
-            select.appendChild(group);
-            lastVersion = version;
-        }
-
-        const option = document.createElement('option');
-        option.value = model;
-        option.textContent = '  ' + getRatioDisplay(model);
-        select.appendChild(option);
-    });
+    renderModelOptions(select, models);
 }
 
 function renderVideoBatchCards() {
@@ -1105,7 +1100,7 @@ async function startTask(taskIndex) {
         task.status = 'failed';
         updateTaskUI(taskIndex);
         console.error('Task error:', error);
-        let errorMsg = '网络连接失败';
+        let errorMsg = error.message || '网络连接失败';
         if (error.name === 'AbortError') {
             errorMsg = '请求超时(3分钟)，请检查网络后重试';
         } else if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('net::ERR'))) {

@@ -12,6 +12,9 @@ services:
       WAITRESS_THREADS: "64"
       # 异步任务 worker 并发，建议 <= WAITRESS_THREADS
       GENERATE_WORKERS: "24"
+      # 上游生成接口可能长时间等待；图片/视频批量场景建议放宽
+      UPSTREAM_CONNECT_TIMEOUT_SECONDS: "30"
+      UPSTREAM_TIMEOUT_SECONDS: "600"
       # 排队上限，超过即快速返回 429，避免服务拖死
       MAX_PENDING_JOBS: "300"
     expose:

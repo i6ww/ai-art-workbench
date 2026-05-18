@@ -29,7 +29,8 @@ app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true",
 BASE_URL = os.environ.get("API_BASE_URL", "http://www.3711api.top").rstrip("/")
 
 LISTEN_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "80")))
-UPSTREAM_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_TIMEOUT_SECONDS", "300"))
+UPSTREAM_CONNECT_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_CONNECT_TIMEOUT_SECONDS", "30"))
+UPSTREAM_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_TIMEOUT_SECONDS", "600"))
 USE_UPSTREAM_STREAM = os.environ.get("USE_UPSTREAM_STREAM", "1").lower() not in ("0", "false", "no")
 WAITRESS_THREADS = int(os.environ.get("WAITRESS_THREADS", "32"))
 GENERATE_WORKERS = int(os.environ.get("GENERATE_WORKERS", "16"))
@@ -288,25 +289,30 @@ def _stream_delta_content(event):
 def _read_streaming_chat_content(response):
     parts = []
     last_json = None
-    for raw_line in response.iter_lines(decode_unicode=True):
-        if not raw_line:
-            continue
-        line = raw_line.strip()
-        if line.startswith("data:"):
-            line = line[5:].strip()
-        if not line or line == "[DONE]":
-            continue
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            logger.debug("忽略非 JSON 流式片段: %s", line[:120])
-            continue
-        last_json = event
-        if isinstance(event.get("error"), (str, dict)):
-            return "", _extract_upstream_error_text(json.dumps(event, ensure_ascii=False))
-        piece = _stream_delta_content(event)
-        if piece:
-            parts.append(piece)
+    try:
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if not raw_line:
+                continue
+            line = raw_line.strip()
+            if line.startswith("data:"):
+                line = line[5:].strip()
+            if not line or line == "[DONE]":
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                logger.debug("忽略非 JSON 流式片段: %s", line[:120])
+                continue
+            last_json = event
+            if isinstance(event.get("error"), (str, dict)):
+                return "", _extract_upstream_error_text(json.dumps(event, ensure_ascii=False))
+            piece = _stream_delta_content(event)
+            if piece:
+                parts.append(piece)
+    except requests.exceptions.RequestException as e:
+        return "", f"STREAM_CONNECTION_ERROR: {e}"
+    except TimeoutError as e:
+        return "", f"STREAM_TIMEOUT: {e}"
 
     content = "".join(parts)
     if content:
@@ -781,22 +787,27 @@ def _process_generate_request(data):
                     headers={"Authorization": f"Bearer {api_key}"},
                     json={**payload, "stream": True},
                     stream=True,
-                    timeout=(15, UPSTREAM_TIMEOUT_SECONDS),
+                    timeout=(UPSTREAM_CONNECT_TIMEOUT_SECONDS, UPSTREAM_TIMEOUT_SECONDS),
                 )
                 logger.info(f"API流式响应状态码: {response.status_code}")
                 if response.status_code == 200:
                     content, stream_err = _read_streaming_chat_content(response)
                     if stream_err:
-                        logger.error(f"流式响应解析失败: {stream_err}")
-                        return None, _error_payload(
-                            "上游流式响应解析失败。",
-                            "UPSTREAM_STREAM_PARSE_FAILED",
-                            status_code=502,
-                            hint="上游返回了无法解析的流式内容。请稍后重试；若持续出现，请管理员检查上游兼容格式。",
-                            stage="upstream",
-                            retryable=True,
-                            upstream_message=stream_err,
-                        ), 502
+                        if stream_err.startswith(("STREAM_CONNECTION_ERROR:", "STREAM_TIMEOUT:")):
+                            logger.warning("上游流式连接中断，回退为普通请求: %s", stream_err)
+                            response.close()
+                            content = None
+                        else:
+                            logger.error(f"流式响应解析失败: {stream_err}")
+                            return None, _error_payload(
+                                "上游流式响应解析失败。",
+                                "UPSTREAM_STREAM_PARSE_FAILED",
+                                status_code=502,
+                                hint="上游返回了无法解析的流式内容。请稍后重试；若持续出现，请管理员检查上游兼容格式。",
+                                stage="upstream",
+                                retryable=True,
+                                upstream_message=stream_err,
+                            ), 502
                 else:
                     error_detail = response.text[:4000]
                     logger.error(
@@ -816,7 +827,7 @@ def _process_generate_request(data):
                     f"{BASE_URL}/v1/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
                     json=payload,
-                    timeout=(15, UPSTREAM_TIMEOUT_SECONDS),
+                    timeout=(UPSTREAM_CONNECT_TIMEOUT_SECONDS, UPSTREAM_TIMEOUT_SECONDS),
                 )
                 logger.info(f"API响应状态码: {response.status_code}")
         except requests.exceptions.Timeout:
