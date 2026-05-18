@@ -27,7 +27,6 @@ services:
       - "8080:80"
     volumes:
       - ./static:/usr/share/nginx/html:ro
-      - ./image.png:/usr/share/nginx/html/image.png:ro
       - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
