@@ -26,7 +26,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'), static_url_path='/')
 app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
 
-BASE_URL = os.environ.get("API_BASE_URL", "https://371181668.xyz").rstrip("/")
+BASE_URL = os.environ.get("API_BASE_URL", "http://www.3711api.top").rstrip("/")
 
 LISTEN_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "80")))
 UPSTREAM_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_TIMEOUT_SECONDS", "300"))

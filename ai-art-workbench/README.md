@@ -302,7 +302,7 @@ ai-art-workbench/
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `https://371181668.xyz` |
+| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `http://www.3711api.top` |
 | `IMAGE_URL_REWRITES` | 将返回中的图片内网/旧 HTTP 前缀替换为公网 HTTPS，格式 `旧前缀\|新前缀`，多项用英文逗号分隔 | （默认空；按需示例：`http://43.165.172.5:6001\|https://adobe.371181668.xyz`） |
 | `DOWNLOAD_ALLOWED_HOSTS` | 代理下载接口允许的主机名（逗号分隔，防 SSRF） | `www.371181668.xyz,adobe.371181668.xyz,adobe2.371181668.xyz,371181668.xyz` |
 | `MAX_DOWNLOAD_BYTES` | 单次代理下载最大字节数 | `314572800`（约 300MB，便于下载视频结果） |
