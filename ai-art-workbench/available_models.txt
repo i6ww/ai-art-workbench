@@ -366,8 +366,6 @@ API returned models:
   firefly-veo31-ref-8s-9x16-1080p
   firefly-veo31-ref-8s-9x16-720p
   gemini-2.5-flash-image-preview-c
-  gemini-3-pro-image-preview-c
-  gemini-3.1-flash-image-preview-c
   gpt-5.2
   gpt-5.2-codex
   gpt-5.3-codex

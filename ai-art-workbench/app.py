@@ -26,7 +26,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, static_folder=os.path.join(BASE_DIR, 'static'), static_url_path='/')
 app.config["DEBUG"] = os.environ.get("FLASK_DEBUG", "").lower() in ("1", "true", "yes")
 
-BASE_URL = os.environ.get("API_BASE_URL", "http://www.3711api.top").rstrip("/")
+BASE_URL = os.environ.get("API_BASE_URL", "https://nikk.pro/").rstrip("/")
 
 LISTEN_PORT = int(os.environ.get("PORT", os.environ.get("SERVER_PORT", "80")))
 UPSTREAM_CONNECT_TIMEOUT_SECONDS = int(os.environ.get("UPSTREAM_CONNECT_TIMEOUT_SECONDS", "30"))
@@ -37,17 +37,6 @@ GENERATE_WORKERS = int(os.environ.get("GENERATE_WORKERS", "16"))
 MAX_PENDING_JOBS = int(os.environ.get("MAX_PENDING_JOBS", "300"))
 JOB_TTL_SECONDS = int(os.environ.get("JOB_TTL_SECONDS", "3600"))
 MAX_JOB_STORE = int(os.environ.get("MAX_JOB_STORE", "1000"))
-GEMINI_DEFAULT_IMAGE_SIZE = os.environ.get("GEMINI_DEFAULT_IMAGE_SIZE", "1K").upper()
-GEMINI_MODEL_VARIANT_SEPARATOR = "__"
-GEMINI_IMAGE_SIZES = ("1K", "2K", "4K")
-GEMINI_MODEL_BASE_SIZES = {
-    "gemini-3-pro-image-preview": GEMINI_IMAGE_SIZES,
-    "gemini-3.1-flash-image-preview": GEMINI_IMAGE_SIZES,
-    "gemini-3.0-pro-image-2k": ("2K",),
-    "gemini-3.0-pro-image-4k": ("4K",),
-}
-
-
 def _parse_image_url_rewrites():
     # 默认不重写；仅当上游偶发返回旧内网/HTTP 图片前缀时再设置 IMAGE_URL_REWRITES，例如：
     # http://43.165.172.5:6001|https://adobe.371181668.xyz
@@ -70,10 +59,7 @@ MAX_IMAGE_PAYLOAD_CHARS = int(os.environ.get("MAX_IMAGE_PAYLOAD_CHARS", str(12 *
 
 DOWNLOAD_ALLOWED_HOSTS = frozenset(
     h.strip().lower()
-    for h in os.environ.get(
-        "DOWNLOAD_ALLOWED_HOSTS",
-        "www.371181668.xyz,adobe.371181668.xyz,adobe2.371181668.xyz,371181668.xyz",
-    ).split(",")
+    for h in os.environ.get("DOWNLOAD_ALLOWED_HOSTS", "").split(",")
     if h.strip()
 )
 
@@ -367,54 +353,6 @@ def _is_video_model(model: str) -> bool:
     ))
 
 
-def _is_gemini_image_model(model: str) -> bool:
-    return _gemini_upstream_model(model).startswith("gemini-") and "image" in _gemini_upstream_model(model)
-
-
-def _gemini_upstream_model(model: str) -> str:
-    return (model or "").split(GEMINI_MODEL_VARIANT_SEPARATOR, 1)[0]
-
-
-def _gemini_image_size(model: str) -> str:
-    match = re.search(r'__size-(1k|2k|4k)(?:__|$)', model, re.I)
-    if match:
-        return match.group(1).upper()
-    match = re.search(r'-(1k|2k|4k)(?:-|$)', model, re.I)
-    if match:
-        return match.group(1).upper()
-    return GEMINI_DEFAULT_IMAGE_SIZE
-
-
-def _gemini_generation_config(model: str) -> dict:
-    return {
-        "responseModalities": ["IMAGE"],
-        "imageConfig": {
-            "imageSize": _gemini_image_size(model),
-        },
-    }
-
-
-def _gemini_prompt_with_constraints(prompt: str, model: str) -> str:
-    image_size = _gemini_image_size(model)
-    return (
-        f"{prompt}\n\n"
-        f"Output requirements: generate the final image at image size {image_size}. "
-        "Use the model default aspect ratio."
-    )
-
-
-def _gemini_model_option(base_model: str, size: str) -> str:
-    return f"{base_model}{GEMINI_MODEL_VARIANT_SEPARATOR}size-{size.lower()}"
-
-
-def _make_gemini_model_options() -> list[str]:
-    out = []
-    for base_model, sizes in GEMINI_MODEL_BASE_SIZES.items():
-        for size in sizes:
-            out.append(_gemini_model_option(base_model, size))
-    return out
-
-
 def _make_video_model_options() -> list[str]:
     models = []
     for family in ("firefly-sora2",):
@@ -503,7 +441,7 @@ def _validate_download_url(url):
     host = (parsed.hostname or "").lower()
     if not host:
         return False, "缺少主机名"
-    if host not in DOWNLOAD_ALLOWED_HOSTS:
+    if DOWNLOAD_ALLOWED_HOSTS and host not in DOWNLOAD_ALLOWED_HOSTS:
         return False, "不允许的下载域名"
     try:
         for res in socket.getaddrinfo(host, None):
@@ -660,7 +598,6 @@ MODELS = {
         "firefly-gpt-image-4k-5x4",
         "firefly-gpt-image-4k-9x16",
     ],
-    "Gemini": _make_gemini_model_options(),
     "Video": _make_video_model_options(),
 }
 
@@ -733,55 +670,36 @@ def _process_generate_request(data):
         ), 400
 
     try:
-        is_gemini_image_model = _is_gemini_image_model(model)
-        gemini_prompt = _gemini_prompt_with_constraints(prompt, model) if is_gemini_image_model else prompt
-
         if image_data or images_data:
-            content = [] if is_gemini_image_model else [{"type": "text", "text": prompt}]
+            content = [{"type": "text", "text": prompt}]
             if images_data:
                 for img in images_data:
-                    if is_gemini_image_model and img.startswith("data:"):
-                        image_b64 = img
-                    elif ',' in img:
+                    if ',' in img:
                         image_b64 = img.split(',')[1]
                     else:
                         image_b64 = img
-                    image_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
+                    image_url = f"data:image/jpeg;base64,{image_b64}"
                     content.append({"type": "image_url", "image_url": {"url": image_url}})
             elif image_data:
-                if is_gemini_image_model and image_data.startswith("data:"):
-                    image_b64 = image_data
-                elif ',' in image_data:
+                if ',' in image_data:
                     image_b64 = image_data.split(',')[1]
                 else:
                     image_b64 = image_data
-                image_url = image_b64 if image_b64.startswith("data:") else f"data:image/jpeg;base64,{image_b64}"
+                image_url = f"data:image/jpeg;base64,{image_b64}"
                 content.append({"type": "image_url", "image_url": {"url": image_url}})
-            if is_gemini_image_model:
-                content.append({"type": "text", "text": gemini_prompt})
             messages = [{"role": "user", "content": content}]
         else:
-            if is_gemini_image_model:
-                messages = [{"role": "user", "content": [{"type": "text", "text": gemini_prompt}]}]
-            else:
-                messages = [{"role": "user", "content": prompt}]
+            messages = [{"role": "user", "content": prompt}]
 
         payload = {
-            "model": _gemini_upstream_model(model) if is_gemini_image_model else model,
+            "model": model,
             "messages": messages,
         }
-        if is_gemini_image_model:
-            payload["generationConfig"] = _gemini_generation_config(model)
-            logger.info(
-                "Gemini生成配置: upstream_model=%s, imageSize=%s, aspectRatio=default",
-                payload["model"],
-                payload["generationConfig"]["imageConfig"]["imageSize"],
-            )
         content = None
         response = None
         logger.info(f"正在调用API: {BASE_URL}/v1/chat/completions, 模型: {model}")
         try:
-            if USE_UPSTREAM_STREAM and not is_gemini_image_model:
+            if USE_UPSTREAM_STREAM:
                 response = http_session.post(
                     f"{BASE_URL}/v1/chat/completions",
                     headers={"Authorization": f"Bearer {api_key}"},
@@ -891,11 +809,11 @@ def _process_generate_request(data):
 
             inline_images = _extract_inline_image_data(result)
             if inline_images:
-                logger.info(f"成功提取 Gemini inline 图片数量: {len(inline_images)}")
+                logger.info(f"成功提取 inline 图片数量: {len(inline_images)}")
                 return {
                     'image': inline_images[0],
                     'allImages': inline_images,
-                    'content': '[Gemini inline image]',
+                    'content': '[inline image]',
                 }, None, 200
 
             content, parse_err = _chat_content_from_result(result)
@@ -904,7 +822,7 @@ def _process_generate_request(data):
                     "上游响应格式不符合预期，无法读取生成内容。",
                     "UPSTREAM_UNEXPECTED_FORMAT",
                     status_code=502,
-                    hint="上游没有返回 choices[0].message.content 或 Gemini inline 图片。请检查模型是否仍兼容 chat/completions。",
+                    hint="上游没有返回 choices[0].message.content 或 inline 图片。请检查模型是否仍兼容 chat/completions。",
                     stage="parse",
                     retryable=True,
                     upstream_message=parse_err,
@@ -1136,7 +1054,7 @@ def download_image():
             f"下载地址不被允许：{err}",
             "DOWNLOAD_URL_REJECTED",
             status_code=400,
-            hint="为防止 SSRF，下载代理只允许白名单域名。可让管理员把可信媒体域名加入 DOWNLOAD_ALLOWED_HOSTS。",
+            hint="请确认媒体地址可公开访问，且不是内网、回环或本机地址。若配置了 DOWNLOAD_ALLOWED_HOSTS，请确认该域名已加入允许列表。",
             stage="download",
         )), 400
     

@@ -22,6 +22,9 @@ let batchTasks = [
     { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
     { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
     { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
+    { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' },
     { images: [null, null, null], prompt: '', result: null, mediaType: 'image', status: 'pending' }
 ];
 let currentBatchUploadTask = 0;
@@ -49,6 +52,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadSettings();
     loadApiKey();
     initModelSelect();
+    ensureBatchTaskCards();
     initBatchModelSelect();
     initVideoBatch();
     setupEventListeners();
@@ -125,22 +129,22 @@ function loadApiKey() {
 
 // 加载主题
 function loadTheme() {
-    const theme = localStorage.getItem('theme') || 'dark';
+    const theme = localStorage.getItem('theme') || 'light';
     setTheme(theme);
 }
 
 // 切换主题
 function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    const currentTheme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
     setTheme(newTheme);
     localStorage.setItem('theme', newTheme);
 }
 
 // 设置主题
 function setTheme(theme) {
-    if (theme === 'light') {
-        document.documentElement.setAttribute('data-theme', 'light');
+    if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
         document.getElementById('themeIcon').innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>';
     } else {
         document.documentElement.removeAttribute('data-theme');
@@ -207,10 +211,6 @@ function getModelFamilyLabel(model) {
     if (model.startsWith('firefly-veo31-fast-')) return 'Veo 3.1 极速';
     if (model.startsWith('firefly-veo31-')) return 'Veo 3.1 标准';
     if (model.startsWith('firefly-kling3-')) return 'Kling 3.0';
-    if (model.startsWith('gemini-3-pro-image-preview')) return 'Gemini 3 Pro Image Preview';
-    if (model.startsWith('gemini-3.1-flash-image-preview')) return 'Gemini 3.1 Flash Image Preview';
-    if (model.startsWith('gemini-3.0-pro-image-2k')) return 'Gemini 3.0 Pro Image 2K';
-    if (model.startsWith('gemini-3.0-pro-image-4k')) return 'Gemini 3.0 Pro Image 4K';
     if (model === 'gpt-image-2' || model.includes('firefly-gpt-image')) return 'GPT Image 2';
     if (model.includes('nano-banana-pro')) return 'Nano Banana Pro';
     if (model.includes('nano-banana2')) return 'Nano Banana 2';
@@ -229,17 +229,6 @@ function getRatioDisplay(model) {
     }
     if (model === 'firefly-gpt-image-2-4k') {
         return '4K / 默认比例';
-    }
-    if (model.startsWith('gemini-')) {
-        const sizeMatch = model.match(/__size-(1k|2k|4k)/i);
-        if (sizeMatch) {
-            return `${sizeMatch[1].toUpperCase()} / 默认比例`;
-        }
-        return model
-            .replace(/__size-\w+$/, '')
-            .replace(/-preview-c$/, '')
-            .replace(/^gemini-/, '')
-            .replace(/-/g, ' ');
     }
     // GPT Image 2 4K 模型特殊处理
     if (model.includes('gpt-image-2-4k-')) {
@@ -261,8 +250,6 @@ function getRatioDisplay(model) {
 }
 
 function getImageSizeLabel(model) {
-    const geminiSize = model.match(/__size-(1k|2k|4k)/i);
-    if (geminiSize) return geminiSize[1].toUpperCase();
     if (model.includes('gpt-image-2-4k')) return '4K';
     const size = model.match(/-(1k|2k|4k)(?:-|$)/i);
     return size ? size[1].toUpperCase() : '';
@@ -847,6 +834,41 @@ function clearHistory() {
 // ==================== 批量生成功能 ====================
 
 // 初始化批量模型选择
+function ensureBatchTaskCards() {
+    const grid = document.querySelector('#batchArea .batch-grid');
+    if (!grid) return;
+
+    for (let index = grid.querySelectorAll('.batch-card').length; index < batchTasks.length; index++) {
+        const card = document.createElement('div');
+        card.className = 'batch-card';
+        card.dataset.taskId = String(index);
+        card.innerHTML = `
+            <div class="batch-card-header">
+                <span class="batch-card-title">任务 ${index + 1}</span>
+                <span class="batch-card-status" data-status="pending">待开始</span>
+                <button class="btn-clear-task" onclick="clearTask(${index})">x</button>
+            </div>
+            <div class="batch-card-images">
+                <div class="batch-upload-item" onclick="triggerBatchUpload(${index}, 0)"><span>+</span></div>
+                <div class="batch-upload-item" onclick="triggerBatchUpload(${index}, 1)"><span>+</span></div>
+                <div class="batch-upload-item" onclick="triggerBatchUpload(${index}, 2)"><span>+</span></div>
+            </div>
+            <textarea class="batch-prompt" placeholder="输入提示词..." rows="2"></textarea>
+            <div class="batch-card-result" style="display: none;">
+                <img src="" alt="结果">
+            </div>
+            <div class="batch-card-actions">
+                <button class="btn-batch-start" onclick="startTask(${index})">开始</button>
+            </div>
+        `;
+        grid.appendChild(card);
+    }
+}
+
+function getBatchCards() {
+    return document.querySelectorAll('#batchArea .batch-card');
+}
+
 function initBatchModelSelect() {
     updateBatchModels();
 }
@@ -868,7 +890,7 @@ function applySettingsToAll() {
     const resolution = document.getElementById('batchResolutionSelect').value;
 
     // 更新所有卡片的提示输入框placeholder或提示（这里只是视觉反馈）
-    const cards = document.querySelectorAll('.batch-card');
+    const cards = getBatchCards();
     cards.forEach((card, index) => {
         // 保存当前提示词
         const task = batchTasks[index];
@@ -901,7 +923,7 @@ function handleBatchImageUpload(event) {
 
 // 更新批量上传预览
 function updateBatchUploadPreview(taskIndex, imgIndex) {
-    const card = document.querySelectorAll('.batch-card')[taskIndex];
+    const card = getBatchCards()[taskIndex];
     const imgContainer = card.querySelectorAll('.batch-upload-item')[imgIndex];
     const img = batchTasks[taskIndex].images[imgIndex];
 
@@ -1037,7 +1059,7 @@ async function fetchWithRetry(url, options, retries = 3, timeout = 180000) {
 // 开始单个任务
 async function startTask(taskIndex) {
     const task = batchTasks[taskIndex];
-    const card = document.querySelectorAll('.batch-card')[taskIndex];
+    const card = getBatchCards()[taskIndex];
     const promptInput = card.querySelector('.batch-prompt');
     const btn = card.querySelector('.btn-batch-start');
 
@@ -1113,7 +1135,7 @@ async function startTask(taskIndex) {
 // 更新任务UI
 function updateTaskUI(taskIndex) {
     const task = batchTasks[taskIndex];
-    const card = document.querySelectorAll('.batch-card')[taskIndex];
+    const card = getBatchCards()[taskIndex];
     const statusEl = card.querySelector('.batch-card-status');
     const btn = card.querySelector('.btn-batch-start');
     const resultEl = card.querySelector('.batch-card-result');
@@ -1164,7 +1186,7 @@ function updateTaskUI(taskIndex) {
 // 更新任务状态显示
 function updateTaskStatus(taskIndex) {
     const task = batchTasks[taskIndex];
-    const card = document.querySelectorAll('.batch-card')[taskIndex];
+    const card = getBatchCards()[taskIndex];
     const statusEl = card.querySelector('.batch-card-status');
     statusEl.dataset.status = task.status;
 }
@@ -1179,7 +1201,7 @@ function clearTask(taskIndex) {
         status: 'pending'
     };
 
-    const card = document.querySelectorAll('.batch-card')[taskIndex];
+    const card = getBatchCards()[taskIndex];
     card.querySelector('.batch-prompt').value = '';
     card.querySelector('.batch-card-result').style.display = 'none';
 
@@ -1204,7 +1226,7 @@ async function startAllTasks() {
     // 获取所有有提示词的任务并开始
     for (let i = 0; i < batchTasks.length; i++) {
         const task = batchTasks[i];
-        const card = document.querySelectorAll('.batch-card')[i];
+        const card = getBatchCards()[i];
         task.prompt = card.querySelector('.batch-prompt').value.trim();
 
         if (task.prompt && task.status === 'pending') {

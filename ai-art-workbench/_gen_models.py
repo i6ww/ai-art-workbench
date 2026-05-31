@@ -31,35 +31,13 @@ for m in ids:
 
 api = text.split("API returned models:", 1)[-1]
 gpt = []
-gemini_targets = (
-    "gemini-3-pro-image-preview",
-    "gemini-3.1-flash-image-preview",
-    "gemini-3.0-pro-image-2k",
-    "gemini-3.0-pro-image-4k",
-)
-gemini_sizes = {
-    "gemini-3-pro-image-preview": ("1K", "2K", "4K"),
-    "gemini-3.1-flash-image-preview": ("1K", "2K", "4K"),
-    "gemini-3.0-pro-image-2k": ("2K",),
-    "gemini-3.0-pro-image-4k": ("4K",),
-}
-gemini = []
 for line in api.splitlines():
     line = line.strip()
     if line.startswith("firefly-gpt-image"):
         gpt.append(line)
     elif line == "gpt-image-2":
         gpt.append(line)
-    elif line in gemini_targets:
-        gemini.append(line)
 gpt = sorted(set(gpt))
-available_gemini = set(gemini)
-gemini = [
-    f"{m}__size-{size.lower()}"
-    for m in gemini_targets
-    if m in available_gemini
-    for size in gemini_sizes[m]
-]
 
 
 def pylist(arr):
@@ -81,8 +59,5 @@ print("    ],")
 print('    "GPT2": [')
 pylist(gpt)
 print("    ],")
-print('    "Gemini": [')
-pylist(gemini)
-print("    ],")
 print("}")
-print("#", len(k1), len(k2), len(k4), len(gpt), len(gemini), sum([len(k1), len(k2), len(k4), len(gpt), len(gemini)]))
+print("#", len(k1), len(k2), len(k4), len(gpt), sum([len(k1), len(k2), len(k4), len(gpt)]))

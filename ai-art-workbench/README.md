@@ -2,7 +2,7 @@
 
 一个简洁美观的 AI 创作工作台，支持图片生成、视频生成、图片批量和视频批量，开箱即用。
 
-**主站点**: https://www.371181668.xyz
+**主站点**: https://nikk.pro/
 
 ---
 
@@ -19,7 +19,7 @@
 | **视频批量** | 独立的视频批量生成模块，只展示视频模型 |
 | **多图参考** | 图片最多支持 6 张参考图，视频按模型支持 1-3 张参考图，单张建议 10MB 内 |
 | **多分辨率** | 支持 1K、2K、4K 输出 |
-| **多模型选择** | 支持 Pro、V2、V3、GPT Image、Gemini、Sora、Veo、Kling 等多种模型 |
+| **多模型选择** | 支持 Pro、V2、V3、GPT Image、Sora、Veo、Kling 等多种模型 |
 
 ### 用户体验
 | 功能 | 说明 |
@@ -206,7 +206,7 @@ git pull origin master && docker-compose up -d --build
 
 ## 📊 支持模型
 
-工作台可选模型与 **`GET https://371181668.xyz/v1/models`**（需 Bearer Key）返回的 ID **保持一致**。在项目目录执行：
+工作台可选模型与 **`GET https://nikk.pro/v1/models`**（需 Bearer Key）返回的 ID **保持一致**。在项目目录执行：
 
 ```bash
 # 推荐：创建 .model_fetch_key（首行一行 sk-...，已 gitignore），然后自动写回 app.py
@@ -222,13 +222,12 @@ python _fetch_models_from_api.py --patch-app
 
 也可去掉 `--patch-app`，把脚本打印的 `MODELS = { ... }` 手动粘贴进 `app.py`。
 
-可选环境变量：`MODEL_FETCH_URL`（默认 `https://371181668.xyz/v1/models`）。
+可选环境变量：`MODEL_FETCH_URL`（默认 `https://nikk.pro/v1/models`）。
 
 | 分辨率分组 | 说明 |
 |-----------|------|
 | **1K / 2K / 4K** | `firefly-nano-banana`、`firefly-nano-banana-pro`、`firefly-nano-banana2`，按模型 ID 中的 `-1k-` / `-2k-` / `-4k-` 归类 |
 | **GPT2** | 接口返回中含 `firefly-gpt-image`、`gpt-image-2` 的模型 |
-| **Gemini** | `gemini-3-pro-image-preview`、`gemini-3.1-flash-image-preview` 可选 `1K/2K/4K`；`gemini-3.0-pro-image-2k` 固定 `2K`，`gemini-3.0-pro-image-4k` 固定 `4K`；不设置比例，使用模型默认比例 |
 | **Video** | `firefly-sora2-*`、`firefly-veo31-*`、`firefly-veo31-ref-*`、`firefly-veo31-fast-*`、`firefly-kling3-*` |
 
 图片模型和视频模型在 UI 中分组展示；图片批量和视频批量使用独立模块，避免误选模型类型。
@@ -295,14 +294,14 @@ ai-art-workbench/
 
 ## 🔌 API 配置
 
-- **API 地址**: https://371181668.xyz（与 `API_BASE_URL` 默认一致；站长入口常为 www 子域）
+- **API 地址**: https://nikk.pro/（与 `API_BASE_URL` 默认一致）
 - **认证方式**: Bearer API Key
 
 ### 服务端环境变量（可选）
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `http://www.3711api.top` |
+| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `https://nikk.pro/` |
 | `IMAGE_URL_REWRITES` | 将返回中的图片内网/旧 HTTP 前缀替换为公网 HTTPS，格式 `旧前缀\|新前缀`，多项用英文逗号分隔 | （默认空；按需示例：`http://43.165.172.5:6001\|https://adobe.371181668.xyz`） |
 | `DOWNLOAD_ALLOWED_HOSTS` | 代理下载接口允许的主机名（逗号分隔，防 SSRF） | `www.371181668.xyz,adobe.371181668.xyz,adobe2.371181668.xyz,371181668.xyz` |
 | `MAX_DOWNLOAD_BYTES` | 单次代理下载最大字节数 | `314572800`（约 300MB，便于下载视频结果） |
@@ -351,5 +350,5 @@ ai-art-workbench/
 
 <p align="center">
   <a href="https://github.com/i6ww/aigongzuotai">GitHub</a> •
-  <a href="https://www.371181668.xyz">主站点</a>
+  <a href="https://nikk.pro/">主站点</a>
 </p>
