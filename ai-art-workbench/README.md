@@ -30,7 +30,7 @@
 | **隐私保护** | 默认不保存 API Key；仅在勾选「记住」后写入本机 localStorage |
 | **媒体下载** | 支持图片和视频结果下载 |
 | **清晰错误提示** | 区分参数、Key、权限、限流、上游错误、解析失败、下载失败等场景 |
-| **售后服务群** | 右侧显示售后服务群二维码（`image.png`） |
+| **售后服务群** | 右侧显示售后服务群二维码（`static/F4.jpg`） |
 | **响应式布局** | 支持桌面端和移动端 |
 
 ---
@@ -49,7 +49,7 @@
 │ 提示词  │                            │  https://.. │
 │         │  [请输入描述词...]         │             │
 │         │                            │  售后服务群  │
-│         │       [开始生成]           │  image.png   │
+│         │       [开始生成]           │  F4.jpg      │
 └─────────┴────────────────────────────┴─────────────┘
 ```
 
@@ -277,7 +277,7 @@ docker load < ai-art-workbench.tar
 ```
 ai-art-workbench/
 ├── app.py                 # Flask 后端 API（内含 MODELS 清单）
-├── image.png              # 售后服务群二维码
+├── static/F4.jpg          # 售后服务群二维码
 ├── available_models.txt   # 旧版参考清单（请以 /v1/models 为准）
 ├── _fetch_models_from_api.py   # 从上游 /v1/models 拉取并打印 MODELS 块
 ├── _gen_models.py         # 根据本地 available_models.txt 生成 MODELS（离线）
