@@ -2,7 +2,7 @@
 
 一个简洁美观的 AI 创作工作台，支持图片生成、视频生成、图片批量和视频批量，开箱即用。
 
-**主站点**: https://nikk.pro/
+**主站点**: https://371181668.xyz
 
 ---
 
@@ -30,7 +30,7 @@
 | **隐私保护** | 默认不保存 API Key；仅在勾选「记住」后写入本机 localStorage |
 | **媒体下载** | 支持图片和视频结果下载 |
 | **清晰错误提示** | 区分参数、Key、权限、限流、上游错误、解析失败、下载失败等场景 |
-| **售后服务群** | 右侧显示售后服务群二维码（`static/F4.jpg`） |
+| **售后服务群** | 右侧显示售后服务群二维码（`static/image.png`） |
 | **响应式布局** | 支持桌面端和移动端 |
 
 ---
@@ -49,7 +49,7 @@
 │ 提示词  │                            │  https://.. │
 │         │  [请输入描述词...]         │             │
 │         │                            │  售后服务群  │
-│         │       [开始生成]           │  F4.jpg      │
+│         │       [开始生成]           │  image.png   │
 └─────────┴────────────────────────────┴─────────────┘
 ```
 
@@ -206,7 +206,7 @@ git pull origin master && docker-compose up -d --build
 
 ## 📊 支持模型
 
-工作台可选模型与 **`GET https://nikk.pro/v1/models`**（需 Bearer Key）返回的 ID **保持一致**。在项目目录执行：
+工作台可选模型与 **`GET https://371181668.xyz/v1/models`**（需 Bearer Key）返回的 ID **保持一致**。在项目目录执行：
 
 ```bash
 # 推荐：创建 .model_fetch_key（首行一行 sk-...，已 gitignore），然后自动写回 app.py
@@ -222,7 +222,7 @@ python _fetch_models_from_api.py --patch-app
 
 也可去掉 `--patch-app`，把脚本打印的 `MODELS = { ... }` 手动粘贴进 `app.py`。
 
-可选环境变量：`MODEL_FETCH_URL`（默认 `https://nikk.pro/v1/models`）。
+可选环境变量：`MODEL_FETCH_URL`（默认 `https://371181668.xyz/v1/models`）。
 
 | 分辨率分组 | 说明 |
 |-----------|------|
@@ -277,7 +277,7 @@ docker load < ai-art-workbench.tar
 ```
 ai-art-workbench/
 ├── app.py                 # Flask 后端 API（内含 MODELS 清单）
-├── static/F4.jpg          # 售后服务群二维码
+├── static/image.png       # 售后服务群二维码
 ├── available_models.txt   # 旧版参考清单（请以 /v1/models 为准）
 ├── _fetch_models_from_api.py   # 从上游 /v1/models 拉取并打印 MODELS 块
 ├── _gen_models.py         # 根据本地 available_models.txt 生成 MODELS（离线）
@@ -294,14 +294,14 @@ ai-art-workbench/
 
 ## 🔌 API 配置
 
-- **API 地址**: https://nikk.pro/（与 `API_BASE_URL` 默认一致）
+- **API 地址**: https://371181668.xyz（与 `API_BASE_URL` 默认一致）
 - **认证方式**: Bearer API Key
 
 ### 服务端环境变量（可选）
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `https://nikk.pro/` |
+| `API_BASE_URL` | 上游 OpenAI 兼容 API 根地址 | `https://371181668.xyz` |
 | `IMAGE_URL_REWRITES` | 将返回中的图片内网/旧 HTTP 前缀替换为公网 HTTPS，格式 `旧前缀\|新前缀`，多项用英文逗号分隔 | （默认空；按需示例：`http://43.165.172.5:6001\|https://adobe.371181668.xyz`） |
 | `DOWNLOAD_ALLOWED_HOSTS` | 代理下载接口允许的主机名（逗号分隔，防 SSRF） | `www.371181668.xyz,adobe.371181668.xyz,adobe2.371181668.xyz,371181668.xyz` |
 | `MAX_DOWNLOAD_BYTES` | 单次代理下载最大字节数 | `314572800`（约 300MB，便于下载视频结果） |
@@ -350,5 +350,5 @@ ai-art-workbench/
 
 <p align="center">
   <a href="https://github.com/i6ww/aigongzuotai">GitHub</a> •
-  <a href="https://nikk.pro/">主站点</a>
+  <a href="https://371181668.xyz">主站点</a>
 </p>

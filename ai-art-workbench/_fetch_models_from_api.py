@@ -8,7 +8,7 @@ Usage:
   python _fetch_models_from_api.py --patch-app
 
 API URL default matches app.py BASE_URL:
-  MODEL_FETCH_URL=https://nikk.pro/v1/models
+  MODEL_FETCH_URL=https://371181668.xyz/v1/models
 """
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    url = os.environ.get("MODEL_FETCH_URL", "https://nikk.pro/v1/models").strip()
+    url = os.environ.get("MODEL_FETCH_URL", "https://371181668.xyz/v1/models").strip()
     key = _load_key()
     if not key:
         print(

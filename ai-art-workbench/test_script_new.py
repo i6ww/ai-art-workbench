@@ -5,7 +5,7 @@ import requests
 import base64
 import os
 
-Base_Url = "https://nikk.pro/"  # 填写基础Url
+Base_Url = "https://371181668.xyz"  # 填写基础Url
 your_api_key = ""  # 填写你的API Key
 
 # 图片配置

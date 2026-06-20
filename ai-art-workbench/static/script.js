@@ -11,7 +11,7 @@ async function loadModelsFromApi() {
 
 // 状态
 let currentResolution = '2K';
-let currentMode = 'text2image';  // text2image / image2image / text2video / image2video / batch / videoBatch
+let currentMode = 'text2image';  // text2image / image2image / batch
 let uploadedImages = [null, null, null, null, null, null];  // 6张参考图
 let currentUploadIndex = 0;  // 当前上传的索引
 
@@ -89,18 +89,15 @@ function newChat() {
 // 加载设置
 function loadSettings() {
     currentResolution = localStorage.getItem('resolution') || '2K';
+    if (currentResolution === 'Video') {
+        currentResolution = '2K';
+        localStorage.setItem('resolution', currentResolution);
+    }
 
     // 更新UI
     document.querySelectorAll('.resolution-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.res === currentResolution);
     });
-
-    if (currentResolution === 'Video') {
-        currentMode = 'text2video';
-        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-        document.querySelector('.mode-tab[data-mode="text2video"]').classList.add('active');
-        applyModeUi();
-    }
 
     // 更新模型列表
     updateModels();
@@ -281,6 +278,9 @@ function isImageInputMode() {
 }
 
 function switchResolution(resolution) {
+    if (resolution === 'Video') {
+        resolution = '2K';
+    }
     currentResolution = resolution;
     localStorage.setItem('resolution', currentResolution);
     document.querySelectorAll('.resolution-btn').forEach(btn => {
@@ -354,6 +354,9 @@ function setupEventListeners() {
     // 模式切换
     document.querySelectorAll('.mode-tab').forEach(tab => {
         tab.addEventListener('click', function() {
+            if (this.dataset.mode === 'text2video' || this.dataset.mode === 'image2video' || this.dataset.mode === 'videoBatch') {
+                return;
+            }
             document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
             this.classList.add('active');
             currentMode = this.dataset.mode;

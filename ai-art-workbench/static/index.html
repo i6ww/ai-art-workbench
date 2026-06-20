@@ -21,7 +21,7 @@
                     <button class="resolution-btn active" data-res="2K" title="Nano Banana 图片模型 / 2K">图片 2K</button>
                     <button class="resolution-btn" data-res="4K" title="Nano Banana 图片模型 / 4K">图片 4K</button>
                     <button class="resolution-btn" data-res="GPT2" title="GPT2 图像模型">GPT2</button>
-                    <button class="resolution-btn" data-res="Video" title="Sora / Veo / Kling 视频模型">Video</button>
+                    <button class="resolution-btn" data-res="Video" title="Sora / Veo / Kling 视频模型" hidden>Video</button>
                 </div>
             </div>
             
@@ -67,7 +67,7 @@
                         <button class="mode-tab" data-mode="image2image">图生图</button>
                         <button class="mode-tab" data-mode="batch">图片批量</button>
                     </div>
-                    <div class="mode-group">
+                    <div class="mode-group" hidden>
                         <span class="mode-group-label">视频</span>
                         <button class="mode-tab" data-mode="text2video">文生视频</button>
                         <button class="mode-tab" data-mode="image2video">图生视频</button>
@@ -304,7 +304,7 @@
                 <input type="file" id="batchImageInput" accept="image/*" style="display: none;" onchange="handleBatchImageUpload(event)">
 
                 <!-- 视频批量生成区域 -->
-                <div id="videoBatchArea" class="batch-area video-batch-area" style="display: none;">
+                <div id="videoBatchArea" class="batch-area video-batch-area" style="display: none;" hidden>
                     <div class="batch-settings">
                         <div class="batch-settings-title">视频批量设置</div>
                         <div class="batch-settings-row">
@@ -323,7 +323,7 @@
                     </div>
                 </div>
 
-                <input type="file" id="videoBatchImageInput" accept="image/*" style="display: none;" onchange="handleVideoBatchImageUpload(event)">
+                <input type="file" id="videoBatchImageInput" accept="image/*" style="display: none;" onchange="handleVideoBatchImageUpload(event)" hidden>
 
                 <!-- 欢迎信息 -->
                 <div class="welcome-message" id="welcomeMessage">
@@ -377,14 +377,14 @@
             <div class="settings-section">
                 <h3>🌐 主站点</h3>
                 <div class="site-link">
-                    <a href="https://nikk.pro/" target="_blank" rel="noopener">https://nikk.pro/</a>
+                    <a href="https://371181668.xyz" target="_blank" rel="noopener">https://371181668.xyz</a>
                 </div>
             </div>
             
             <div class="settings-section">
                 <h3>售后服务群</h3>
                 <div class="service-qrcode">
-                    <img src="/F4.jpg" alt="售后服务群">
+                    <img src="/image.png" alt="售后服务群">
                 </div>
             </div>
         </aside>

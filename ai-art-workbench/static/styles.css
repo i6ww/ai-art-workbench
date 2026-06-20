@@ -4,6 +4,10 @@
     box-sizing: border-box;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 :root {
     /* 深色主题（默认） */
     --bg-primary: #0a0a0f;
